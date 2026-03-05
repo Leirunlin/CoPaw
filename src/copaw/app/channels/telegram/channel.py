@@ -32,6 +32,7 @@ TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
 
 _DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
+_TYPING_TIMEOUT_S = 180
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -452,11 +453,16 @@ class TelegramChannel(BaseChannel):
     async def _typing_loop(self, chat_id: str) -> None:
         """Repeatedly send 'typing' action every 4s until cancelled."""
         try:
+            deadline = asyncio.get_event_loop().time() + _TYPING_TIMEOUT_S
             while self._application:
                 await self._send_chat_action(chat_id, "typing")
                 await asyncio.sleep(4)
+                if asyncio.get_event_loop().time() >= deadline:
+                    break
         except asyncio.CancelledError:
             pass
+        finally:
+            self._typing_tasks.pop(chat_id, None)
 
     async def send(
         self,
@@ -624,8 +630,6 @@ class TelegramChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
-        for cid in list(self._typing_tasks):
-            self._stop_typing(cid)
         if self._task:
             self._task.cancel()
             try:
@@ -633,6 +637,8 @@ class TelegramChannel(BaseChannel):
             except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                 pass
             self._task = None
+        for cid in list(self._typing_tasks):
+            self._stop_typing(cid)
         if self._application:
             try:
                 updater = getattr(self._application, "updater", None)
