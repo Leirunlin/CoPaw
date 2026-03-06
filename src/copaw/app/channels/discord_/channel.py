@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
+import tempfile
+from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any, Optional
 
 import aiohttp
@@ -19,7 +22,12 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
-from ..base import BaseChannel, OnReplySent, ProcessHandler
+from ..base import (
+    BaseChannel,
+    OnReplySent,
+    OutgoingContentPart,
+    ProcessHandler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +220,29 @@ class DiscordChannel(BaseChannel):
             filter_thinking=filter_thinking,
         )
 
+    async def _resolve_target(self, to_handle, meta):
+        """Resolve a Discord Messageable from meta or to_handle."""
+        meta = meta or {}
+        if not meta.get("channel_id") and not meta.get("user_id"):
+            meta.update(self._route_from_handle(to_handle))
+        channel_id = meta.get("channel_id")
+        user_id = meta.get("user_id")
+        if channel_id:
+            ch = self._client.get_channel(int(channel_id))
+            if ch is None:
+                ch = await self._client.fetch_channel(
+                    int(channel_id),
+                )
+            return ch
+        if user_id:
+            user = self._client.get_user(int(user_id))
+            if user is None:
+                user = await self._client.fetch_user(
+                    int(user_id),
+                )
+            return user.dm_channel or await user.create_dm()
+        return None
+
     async def send(
         self,
         to_handle: str,
@@ -235,38 +266,107 @@ class DiscordChannel(BaseChannel):
             raise RuntimeError("Discord client is not initialized")
         if not self._client.is_ready():
             raise RuntimeError("Discord client is not ready yet")
+        target = await self._resolve_target(to_handle, meta)
+        if not target:
+            raise ValueError(
+                "DiscordChannel.send requires meta['channel_id']"
+                " or meta['user_id']",
+            )
+        await target.send(text)
 
-        meta = meta or {}
+    async def send_content_parts(
+        self,
+        to_handle: str,
+        parts: list[OutgoingContentPart],
+        meta: Optional[dict] = None,
+    ) -> None:
+        media_types = {
+            ContentType.IMAGE,
+            ContentType.VIDEO,
+            ContentType.AUDIO,
+            ContentType.FILE,
+        }
+        text_parts = [
+            p
+            for p in (parts or [])
+            if getattr(p, "type", None) not in media_types
+        ]
+        media_parts = [
+            p for p in (parts or []) if getattr(p, "type", None) in media_types
+        ]
+        if text_parts:
+            await super().send_content_parts(
+                to_handle,
+                text_parts,
+                meta,
+            )
+        for m in media_parts:
+            await self.send_media(to_handle, m, meta)
 
-        if not meta.get("channel_id") and not meta.get("user_id"):
-            meta.update(self._route_from_handle(to_handle))
-
-        channel_id = meta.get("channel_id")
-        user_id = meta.get("user_id")
-
-        if channel_id:
-            ch = self._client.get_channel(int(channel_id))
-            if ch is None:
-                ch = await self._client.fetch_channel(
-                    int(channel_id),
-                )
-            await ch.send(text)
+    async def send_media(
+        self,
+        to_handle: str,
+        part: OutgoingContentPart,
+        meta: Optional[dict] = None,
+    ) -> None:
+        """Send a media part as a Discord file attachment."""
+        if not self.enabled or not self._client:
             return
-
-        if user_id:
-            user = self._client.get_user(int(user_id))
-            if user is None:
-                user = await self._client.fetch_user(
-                    int(user_id),
-                )
-            dm = user.dm_channel or await user.create_dm()
-            await dm.send(text)
+        if not self._client.is_ready():
             return
+        import discord
 
-        raise ValueError(
-            "DiscordChannel.send requires meta['channel_id'] or meta["
-            "'user_id']",
+        url = (
+            getattr(part, "image_url", None)
+            or getattr(part, "video_url", None)
+            or getattr(part, "data", None)
+            or getattr(part, "file_url", None)
         )
+        if not url:
+            return
+
+        target = await self._resolve_target(to_handle, meta)
+        if not target:
+            logger.warning(
+                "discord send_media: cannot resolve target",
+            )
+            return
+
+        temp_path = None
+        if url.startswith("file://"):
+            file = discord.File(url[7:])
+        elif url.startswith(("http://", "https://")):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            "discord send_media: download " "failed status=%d",
+                            resp.status,
+                        )
+                        return
+                    data = await resp.read()
+            parsed_path = urlparse(url).path
+            suffix = Path(parsed_path).suffix
+            fname = Path(parsed_path).name or f"file{suffix}"
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=suffix,
+            )
+            tmp.write(data)
+            tmp.close()
+            temp_path = tmp.name
+            file = discord.File(
+                temp_path,
+                filename=fname,
+            )
+        else:
+            return
+
+        try:
+            await target.send(file=file)
+        finally:
+            if temp_path:
+                Path(temp_path).unlink(missing_ok=True)
 
     async def _run(self) -> None:
         if not self.enabled or not self.token or not self._client:
