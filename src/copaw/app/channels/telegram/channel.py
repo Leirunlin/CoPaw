@@ -468,7 +468,7 @@ class TelegramChannel(BaseChannel):
             group_policy=c.get("group_policy") or "open",
             allow_from=c.get("allow_from") or [],
             deny_message=c.get("deny_message") or "",
-            require_mention=bool(c.get("require_mention")),
+            require_mention=c.get("require_mention", False),
         )
 
     def _chunk_text(self, text: str) -> list[str]:
