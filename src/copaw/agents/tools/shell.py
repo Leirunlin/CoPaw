@@ -50,7 +50,7 @@ def _execute_subprocess_sync(
             cmd,
             shell=True,
             capture_output=True,
-            text=True,
+            text=False,
             cwd=cwd,
             timeout=timeout,
             env=env,
@@ -60,8 +60,8 @@ def _execute_subprocess_sync(
         )
         return (
             result.returncode,
-            result.stdout.strip("\n"),
-            result.stderr.strip("\n"),
+            smart_decode(result.stdout),
+            smart_decode(result.stderr),
         )
     except subprocess.TimeoutExpired:
         return (
