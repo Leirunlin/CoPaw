@@ -106,7 +106,11 @@ async def execute_shell_command(
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()
     python_bin_dir = str(Path(sys.executable).parent)
-    env["PATH"] = python_bin_dir + os.pathsep + env.get("PATH", "")
+    existing_path = env.get("PATH", "")
+    if existing_path:
+        env["PATH"] = python_bin_dir + os.pathsep + existing_path
+    else:
+        env["PATH"] = python_bin_dir
 
     try:
         if sys.platform == "win32":
