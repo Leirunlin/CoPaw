@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
 import frontmatter
+from packaging.version import InvalidVersion, Version
 
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def _dedupe_skills_by_name(skills: list["SkillInfo"]) -> list["SkillInfo"]:
     return list(merged.values())
 
 
-def _get_builtin_skill_version(skill_dir: Path) -> float | None:
+def _get_builtin_skill_version(skill_dir: Path) -> Version | None:
     """Read ``builtin_skill_version`` from SKILL.md front matter."""
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.exists():
@@ -30,8 +31,8 @@ def _get_builtin_skill_version(skill_dir: Path) -> float | None:
         post = frontmatter.loads(content)
         ver = post.get("builtin_skill_version")
         if ver is not None:
-            return float(ver)
-    except Exception as e:
+            return Version(str(ver))
+    except (InvalidVersion, Exception) as e:
         logger.warning(
             "Could not parse version for skill '%s' from '%s': %s",
             skill_dir.name,
