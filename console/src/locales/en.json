@@ -344,7 +344,7 @@
     "policyOpen": "Open",
     "policyAllowlist": "Allowlist",
     "allowFrom": "Allowlist Users",
-    "allowFromTooltip": "List of user IDs allowed to interact with the bot (format: nickname#last4, e.g. John#1234)",
+    "allowFromTooltip": "List of user IDs allowed to interact with the bot. Enable allowlist first, then DM the bot to see your ID in the deny message",
     "allowFromPlaceholder": "Enter user ID and press Enter to add",
     "denyMessage": "Access Denied Message",
     "denyMessageTooltip": "Custom message shown to users when access is denied",
