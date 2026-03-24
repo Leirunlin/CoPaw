@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Drawer, Form, Input, Button, message } from "@agentscope-ai/design";
+import { Drawer, Form, Input, Button, Select, message } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
@@ -33,6 +33,20 @@ function parseFrontmatter(content: string): Record<string, string> | null {
   return result;
 }
 
+const CHANNEL_OPTIONS = [
+  { label: "all", value: "all" },
+  { label: "console", value: "console" },
+  { label: "discord", value: "discord" },
+  { label: "telegram", value: "telegram" },
+  { label: "dingtalk", value: "dingtalk" },
+  { label: "feishu", value: "feishu" },
+  { label: "imessage", value: "imessage" },
+  { label: "qq", value: "qq" },
+  { label: "mattermost", value: "mattermost" },
+  { label: "wecom", value: "wecom" },
+  { label: "mqtt", value: "mqtt" },
+];
+
 interface SkillDrawerProps {
   open: boolean;
   editingSkill: SkillSpec | null;
@@ -55,6 +69,8 @@ export function SkillDrawer({
   const [contentValue, setContentValue] = useState("");
   const [optimizing, setOptimizing] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [configText, setConfigText] = useState("{}");
+  const [configError, setConfigError] = useState("");
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -85,25 +101,46 @@ export function SkillDrawer({
       form.setFieldsValue({
         name: editingSkill.name,
         content: editingSkill.content,
+        channels: editingSkill.channels || ["all"],
+      });
+      setConfigError("");
+      api.getSkillConfig(editingSkill.name).then((res) => {
+        setConfigText(JSON.stringify(res.config || {}, null, 2));
+      }).catch(() => {
+        setConfigText(JSON.stringify(editingSkill.config || {}, null, 2));
       });
     } else {
       setContentValue("");
+      setConfigText("{}");
+      setConfigError("");
       form.resetFields();
     }
   }, [editingSkill, form]);
 
-  const handleSubmit = (values: { name: string; content: string }) => {
+  const handleSubmit = async (values: SkillSpec) => {
     if (editingSkill) {
-      message.warning(t("skills.editNotSupported"));
-      onClose();
-    } else {
-      onSubmit({
-        ...values,
-        content: contentValue || values.content,
-        source: "",
-        path: "",
-      });
+      const trimmed = configText.trim();
+      if (!trimmed) {
+        await api.deleteSkillConfig(editingSkill.name).catch(() => {});
+      } else {
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(trimmed);
+          setConfigError("");
+        } catch {
+          setConfigError(t("skills.configInvalidJson"));
+          return;
+        }
+        await api.updateSkillConfig(editingSkill.name, parsed);
+      }
     }
+    onSubmit({
+      ...editingSkill,
+      ...values,
+      content: contentValue || values.content,
+      source: editingSkill?.source || "",
+      path: editingSkill?.path || "",
+    });
   };
 
   const handleContentChange = (content: string) => {
@@ -195,8 +232,11 @@ export function SkillDrawer({
       </div>
     </div>
   ) : (
-    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
       <Button onClick={onClose}>{t("common.cancel")}</Button>
+      <Button type="primary" onClick={() => form.submit()}>
+        {t("common.save")}
+      </Button>
     </div>
   );
 
@@ -238,6 +278,10 @@ export function SkillDrawer({
                 }}
               />
             </Form.Item>
+
+            <Form.Item name="channels" label={t("skills.channels")}>
+              <Select mode="multiple" options={CHANNEL_OPTIONS} />
+            </Form.Item>
           </>
         )}
 
@@ -247,16 +291,42 @@ export function SkillDrawer({
               <Input disabled />
             </Form.Item>
 
-            <Form.Item name="content" label="Content">
+            <Form.Item
+              name="content"
+              label="Content"
+              rules={[{ required: true, validator: validateFrontmatter }]}
+            >
               <MarkdownCopy
-                content={editingSkill.content}
+                content={contentValue}
                 showMarkdown={showMarkdown}
                 onShowMarkdownChange={setShowMarkdown}
+                editable={true}
+                onContentChange={handleContentChange}
                 textareaProps={{
-                  disabled: true,
                   rows: 12,
                 }}
               />
+            </Form.Item>
+
+            <Form.Item name="channels" label={t("skills.channels")}>
+              <Select mode="multiple" options={CHANNEL_OPTIONS} />
+            </Form.Item>
+
+            <Form.Item label={t("skills.config")}>
+              <Input.TextArea
+                rows={4}
+                value={configText}
+                onChange={(e) => {
+                  setConfigText(e.target.value);
+                  setConfigError("");
+                }}
+                placeholder={t("skills.configPlaceholder")}
+              />
+              {configError && (
+                <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>
+                  {configError}
+                </div>
+              )}
             </Form.Item>
 
             <Form.Item name="source" label="Source">
@@ -267,19 +337,6 @@ export function SkillDrawer({
               <Input disabled />
             </Form.Item>
 
-            <div
-              style={{
-                padding: 12,
-                backgroundColor: "#fffbe6",
-                border: "1px solid #ffe58f",
-                borderRadius: 4,
-                marginTop: 16,
-              }}
-            >
-              <p style={{ margin: 0, fontSize: 12, color: "#8c8c8c" }}>
-                {t("skills.editNote")}
-              </p>
-            </div>
           </>
         )}
       </Form>

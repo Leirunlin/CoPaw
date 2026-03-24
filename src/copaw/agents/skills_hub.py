@@ -22,7 +22,7 @@ from contextlib import contextmanager
 import frontmatter
 import yaml
 
-from .skills_manager import SkillService
+from .skills_manager import SkillPoolService, SkillService
 
 logger = logging.getLogger(__name__)
 
@@ -1607,12 +1607,53 @@ def install_skill_from_hub(
         _ensure_not_cancelled()
         enabled = False
         if enable:
-            enabled = skill_service.enable_skill(name, force=True)
+            enable_result = skill_service.enable_skill(created)
+            enabled = bool(enable_result.get("success", False))
             if not enabled:
-                logger.warning("Skill '%s' imported but enable failed", name)
+                logger.warning(
+                    "Skill '%s' imported but enable failed",
+                    created,
+                )
 
         return HubInstallResult(
-            name=name,
+            name=created,
             enabled=enabled,
             source_url=source_url,
         )
+
+
+def import_pool_skill_from_hub(
+    *,
+    bundle_url: str,
+    version: str = "",
+    overwrite: bool = False,
+) -> HubInstallResult:
+    if not bundle_url or not _is_http_url(bundle_url):
+        raise ValueError("bundle_url must be a valid http(s) URL")
+
+    data, source_url = _resolve_bundle_from_url(bundle_url, version)
+    name, content, references, scripts, extra_files = _normalize_bundle(data)
+    if not name:
+        fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
+        name = _safe_fallback_name(fallback)
+    name = _sanitize_skill_dir_name(name)
+
+    pool_service = SkillPoolService()
+    created = pool_service.create_skill(
+        name=name,
+        content=content,
+        overwrite=overwrite,
+        references=references,
+        scripts=scripts,
+        extra_files=extra_files,
+    )
+    if not created:
+        raise RuntimeError(
+            f"Failed to create skill '{name}'. " "This skill already exists.",
+        )
+
+    return HubInstallResult(
+        name=created,
+        enabled=False,
+        source_url=source_url,
+    )

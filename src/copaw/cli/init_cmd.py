@@ -145,6 +145,7 @@ def init_cmd(
     from ..app.migration import (
         ensure_default_agent_exists,
         ensure_qa_agent_exists,
+        migrate_legacy_skills_to_skill_pool,
     )
 
     config_path = get_config_path()
@@ -197,9 +198,16 @@ def init_cmd(
     # --- Ensure default agent workspace exists ---
     click.echo("\n=== Default Workspace Initialization ===")
     ensure_default_agent_exists()
+    migrate_legacy_skills_to_skill_pool()
     click.echo("✓ Default workspace initialized")
     ensure_qa_agent_exists()
     click.echo("✓ Builtin QA agent workspace ensured")
+
+    # --- Ensure local skill hub exists ---
+    from ..agents.skills_manager import ensure_skill_pool_initialized
+
+    if ensure_skill_pool_initialized():
+        click.echo("✓ Skill pool initialized")
 
     # Get default workspace path for subsequent operations
     default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
@@ -353,20 +361,23 @@ def init_cmd(
     # --- skills (prompt if needed) ---
     if use_defaults:
         # Using --defaults: enable all skills, skip existing
-        from ..agents.skills_manager import sync_skills_to_working_dir
-
-        click.echo("Enabling all skills by default (skip existing)...")
-        synced, skipped = sync_skills_to_working_dir(
-            workspace_dir=default_workspace,
-            skill_names=None,
-            force=False,
+        from ..agents.skills_manager import (
+            SkillService,
+            get_workspace_skills_dir,
         )
-        if skipped:
-            click.echo(
-                f"✓ Skills synced: {synced}, skipped (existing): {skipped}",
-            )
-        else:
-            click.echo(f"✓ All {synced} skills enabled.")
+
+        service = SkillService(default_workspace)
+        skills_dir = get_workspace_skills_dir(default_workspace)
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        click.echo("Enabling all skills by default (skip existing)...")
+        synced = 0
+        for skill_dir in sorted(skills_dir.iterdir()):
+            if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
+                continue
+            result = service.enable_skill(skill_dir.name)
+            if result.get("success"):
+                synced += 1
+        click.echo(f"✓ All {synced} skills enabled.")
     elif write_config:
         # Interactive mode and config was written: prompt user
         skills_choice = prompt_choice(
@@ -376,15 +387,26 @@ def init_cmd(
         )
 
         if skills_choice == "all":
-            from ..agents.skills_manager import sync_skills_to_working_dir
-
-            click.echo("Enabling all skills...")
-            synced, skipped = sync_skills_to_working_dir(
-                workspace_dir=default_workspace,
-                skill_names=None,
-                force=False,
+            from ..agents.skills_manager import (
+                SkillService,
+                get_workspace_skills_dir,
             )
-            click.echo(f"✓ Skills synced: {synced}, skipped: {skipped}")
+
+            service = SkillService(default_workspace)
+            skills_dir = get_workspace_skills_dir(default_workspace)
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            click.echo("Enabling all skills...")
+            synced = 0
+            for skill_dir in sorted(skills_dir.iterdir()):
+                if (
+                    not skill_dir.is_dir()
+                    or not (skill_dir / "SKILL.md").exists()
+                ):
+                    continue
+                result = service.enable_skill(skill_dir.name)
+                if result.get("success"):
+                    synced += 1
+            click.echo(f"✓ Skills synced: {synced}")
         elif skills_choice == "custom":
             configure_skills_interactive()
         else:  # none

@@ -21,10 +21,6 @@ from ...config.config import (
 )
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
-from ...agents.skills_manager import (
-    prune_active_skills,
-    sync_skills_to_working_dir,
-)
 from ...agents.utils import copy_builtin_qa_md_files
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
@@ -601,8 +597,7 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
     # Create essential subdirectories
     (workspace_dir / "sessions").mkdir(exist_ok=True)
     (workspace_dir / "memory").mkdir(exist_ok=True)
-    (workspace_dir / "active_skills").mkdir(exist_ok=True)
-    (workspace_dir / "customized_skills").mkdir(exist_ok=True)
+    (workspace_dir / "skills").mkdir(exist_ok=True)
 
     # Get language from global config
     config = load_global_config()
@@ -629,35 +624,6 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
                     )
 
     _ensure_default_heartbeat_md(workspace_dir, language)
-
-    builtin_skills_dir = package_agents_root / "skills"
-    if active_skill_names is not None:
-        synced, skipped = sync_skills_to_working_dir(
-            workspace_dir,
-            skill_names=active_skill_names,
-            force=True,
-        )
-        logger.debug(
-            "Synced skills for %s: synced=%s skipped=%s names=%s",
-            workspace_dir,
-            synced,
-            skipped,
-            active_skill_names,
-        )
-        prune_active_skills(workspace_dir, set(active_skill_names))
-    elif builtin_skills_dir.exists():
-        for skill_dir in builtin_skills_dir.iterdir():
-            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                target_skill_dir = (
-                    workspace_dir / "active_skills" / skill_dir.name
-                )
-                if not target_skill_dir.exists():
-                    try:
-                        shutil.copytree(skill_dir, target_skill_dir)
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to copy skill {skill_dir.name}: {e}",
-                        )
 
     # Create empty jobs.json for cron jobs
     jobs_file = workspace_dir / "jobs.json"
