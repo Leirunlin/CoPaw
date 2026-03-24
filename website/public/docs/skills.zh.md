@@ -9,13 +9,16 @@
 
 > 若尚未了解「频道」「心跳」「定时任务」等概念，建议先阅读 [项目介绍](./intro)。
 
-应用从工作目录下的 `skills` 目录（默认 `~/.copaw/active_skills/`）加载能力：每个子目录中只要包含一份 `SKILL.md`，即会被识别为一个 Skill 并加载，无需额外注册。
+每个 workspace 都在自己的 `skills/` 目录中保存本地 Skill，并通过
+`skill.json` 控制是否启用。任意子目录只要包含一份 `SKILL.md`，就会被识别为
+Skill，无需额外注册。
 
 ---
 
 ## 内置 Skills 一览
 
-当前内置的 Skills 如下，安装后会在首次需要时同步到工作目录，你可在控制台或通过配置启用/禁用。
+当前内置的 Skills 如下。它们会出现在本地 skill pool 中，需要时可下载到某个
+workspace，再由该 workspace 自己决定是否启用。
 
 | Skill 名称                   | 说明                                                                                                                                        | 来源                                                           |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -42,13 +45,16 @@
 - **编辑**已有 Skill 的名称或内容。
 - **导入** Skills Hub 中的 Skills
 
-修改后会自动同步到工作目录并影响 Agent 行为。适合不习惯直接改文件的用户。
+修改后会写入当前 workspace 的 `skills/` 目录与 `skill.json`，并影响该
+workspace 的 Agent 行为。适合不习惯直接改文件的用户。
 
 ---
 
 ## 内置 Skill：Cron（定时任务）
 
-首次运行时会从包里把 **Cron** 同步到 `~/.copaw/active_skills/cron/`。它提供「按时间表执行任务并把结果发到频道」的能力；具体任务的增删改查用 [CLI](./cli) 的 `copaw cron` 或控制台 **Control → Cron Jobs** 完成，不需要手写 cron 以外的配置。
+**Cron** 是内置 Skill，可以从 skill pool 添加到某个 workspace。它提供
+「按时间表执行任务并把结果发到频道」的能力；具体任务的增删改查用 [CLI](./cli)
+的 `copaw cron` 或控制台 **Control → Cron Jobs** 完成，不需要手写 cron 以外的配置。
 
 常用操作：
 
@@ -112,25 +118,27 @@
 
 ## 自定义 Skill（在工作目录中）
 
-想通过文件方式给 Agent 加自己的一套说明或能力时，可以在 `customized_skills` 目录下手动添加自定义 Skill。
+想通过文件方式给 Agent 加自己的一套说明或能力时，可以在某个 workspace 的
+`skills/` 目录下手动添加自定义 Skill。
 
 ### 步骤
 
-1. 在 `~/.copaw/customized_skills/` 下新建一个目录，例如 `my_skill`。
-2. 在该目录下新建 `SKILL.md`。里面写 Markdown，给 Agent 看的能力说明、使用注意等；必须在文件开头用 YAML front matter 写 `name`、`description`，可选写 `metadata`（用于在 Agent 或控制台里展示更多信息）。
+1. 在 `~/.copaw/workspaces/{agent_id}/skills/` 下新建一个目录，例如 `my_skill`。
+2. 在该目录下新建 `SKILL.md`。里面写 Markdown，给 Agent 看的能力说明、使用注意等；可选在文件开头用 YAML front matter 写 `name`、`description`、`metadata`，方便在 Agent 或控制台里展示。若 Skill 依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；CoPaw 会将其透出为 `require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
 
 ### 目录结构示例
 
 ```
 ~/.copaw/
-  active_skills/        # 实际激活的 Skill（由内置与自定义合并同步）
+  skill_pool/           # 本地共享池（内置 + 共享自定义 Skill）
     cron/
       SKILL.md
-    my_skill/
-      SKILL.md
-  customized_skills/    # 用户自定义 Skill（在此添加）
-    my_skill/
-      SKILL.md
+  workspaces/
+    default/
+      skills/           # 当前 workspace 可用的 Skill
+        my_skill/
+          SKILL.md
+      skill.json        # 当前 workspace 的启用/频道/元数据状态
 ```
 
 ### SKILL.md 示例
@@ -139,6 +147,10 @@
 ---
 name: my_skill
 description: 我的自定义能力说明
+metadata (可选):
+  requires:
+    bins: [ffmpeg]
+    env: [MY_SKILL_API_KEY]
 ---
 
 # 使用说明
@@ -146,7 +158,9 @@ description: 我的自定义能力说明
 本 Skill 用于……
 ```
 
-应用启动时会将内置 Skill 与 `~/.copaw/customized_skills/` 中的自定义 Skill 合并同步到 `~/.copaw/active_skills/`，同名时自定义优先。你在 `customized_skills` 中新加的目录不会被覆盖；内置 Skill 只会在 `active_skills` 中缺失时复制一次，已存在则不会覆盖。
+内置 Skill 存在于本地 `skill_pool/` 中。workspace 与 pool 完全解耦：把
+Skill 下载到 workspace 后，会复制到该 workspace 的 `skills/` 目录，而是否启用
+由 `skill.json` 决定。requirement 元数据主要用于前端展示和工具提示，不作为硬性启用门槛。
 
 ---
 

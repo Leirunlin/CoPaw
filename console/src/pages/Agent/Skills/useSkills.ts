@@ -18,7 +18,7 @@ function tryParseScanError(error: unknown): SecurityScanErrorResponse | null {
       return parsed as SecurityScanErrorResponse;
     }
   } catch {
-    // not JSON
+    return null;
   }
   return null;
 }
@@ -49,13 +49,7 @@ export function useSkills() {
           ),
           React.createElement(
             "div",
-            {
-              style: {
-                maxHeight: 300,
-                overflow: "auto",
-                marginTop: 8,
-              },
-            },
+            { style: { maxHeight: 300, overflow: "auto", marginTop: 8 } },
             findings.map((f, i) =>
               React.createElement(
                 "div",
@@ -82,13 +76,7 @@ export function useSkills() {
                 f.description &&
                   React.createElement(
                     "div",
-                    {
-                      style: {
-                        fontSize: 12,
-                        color: "#999",
-                        marginTop: 2,
-                      },
-                    },
+                    { style: { fontSize: 12, color: "#999", marginTop: 2 } },
                     f.description,
                   ),
               ),
@@ -128,8 +116,9 @@ export function useSkills() {
           scannerCfg?.whitelist?.some(
             (w: { skill_name: string }) => w.skill_name === skillName,
           )
-        )
+        ) {
           return;
+        }
         const latestForSkill = alerts
           .filter((a) => a.skill_name === skillName && a.action === "warned")
           .pop();
@@ -184,49 +173,39 @@ export function useSkills() {
           ),
         });
       } catch {
-        // non-critical
+        return;
       }
     },
     [t],
   );
 
-  const fetchSkills = async () => {
+  const fetchSkills = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.listSkills();
-      if (data) {
-        setSkills(data);
-      }
+      setSkills(data || []);
     } catch (error) {
       console.error("Failed to load skills", error);
       message.error("Failed to load skills");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    void fetchSkills();
+  }, [selectedAgent, fetchSkills]);
 
-    const loadSkills = async () => {
-      await fetchSkills();
-    };
-
-    if (mounted) {
-      loadSkills();
-    }
-
-    return () => {
-      mounted = false;
-    };
-  }, [selectedAgent]);
-
-  const createSkill = async (name: string, content: string) => {
+  const createSkill = async (
+    name: string,
+    content: string,
+    config?: Record<string, unknown>,
+  ) => {
     try {
-      await api.createSkill(name, content);
+      const result = await api.createSkill(name, content, config);
       message.success("Created successfully");
       await fetchSkills();
-      await checkScanWarnings(name);
+      await checkScanWarnings(result.name);
       return true;
     } catch (error) {
       handleError(error, "Failed to save");
@@ -290,7 +269,9 @@ export function useSkills() {
         if (status.status === "completed" && status.result?.installed) {
           message.success(`Imported skill: ${status.result.name}`);
           await fetchSkills();
-          if (status.result.name) await checkScanWarnings(status.result.name);
+          if (status.result.name) {
+            await checkScanWarnings(status.result.name);
+          }
           return true;
         }
 
@@ -367,7 +348,7 @@ export function useSkills() {
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
         title: "Confirm Delete",
-        content: `Are you sure you want to delete skill "${skill.name}"? This action cannot be undone.`,
+        content: `Are you sure you want to delete skill "${skill.name}"?`,
         okText: "Delete",
         okType: "danger",
         cancelText: "Cancel",
@@ -384,15 +365,12 @@ export function useSkills() {
         message.success("Deleted successfully");
         await fetchSkills();
         return true;
-      } else {
-        message.error("Failed to delete skill");
-        return false;
       }
     } catch (error) {
       console.error("Failed to delete skill", error);
       message.error("Failed to delete skill");
-      return false;
     }
+    return false;
   };
 
   return {
@@ -400,11 +378,12 @@ export function useSkills() {
     loading,
     uploading,
     importing,
-    cancelImport,
     createSkill,
     uploadSkill,
     importFromHub,
+    cancelImport,
     toggleEnabled,
     deleteSkill,
+    refreshSkills: fetchSkills,
   };
 }

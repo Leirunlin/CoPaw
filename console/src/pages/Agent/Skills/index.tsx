@@ -1,29 +1,36 @@
-import { useState, useRef } from "react";
-import { Button, Form, Modal, message } from "@agentscope-ai/design";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Form, Modal, Select, Tooltip, message } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
+  ImportOutlined,
   PlusOutlined,
+  SwapOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import type { SkillSpec } from "../../../api/types";
+import type { PoolSkillSpec, SkillSpec } from "../../../api/types";
 import { SkillCard, SkillDrawer } from "./components";
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
+import { useAgentStore } from "../../../stores/agentStore";
+import api from "../../../api";
+import { parseErrorDetail } from "../../../utils/error";
 import styles from "./index.module.less";
 
 function SkillsPage() {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const {
     skills,
     loading,
     uploading,
     importing,
-    cancelImport,
     createSkill,
     uploadSkill,
     importFromHub,
+    cancelImport,
     toggleEnabled,
     deleteSkill,
+    refreshSkills,
   } = useSkills();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -33,8 +40,42 @@ function SkillsPage() {
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [form] = Form.useForm<SkillSpec>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
+  const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(null);
+  const [poolSkillNames, setPoolSkillNames] = useState<string[]>([]);
+  const [workspaceSkillNames, setWorkspaceSkillNames] = useState<string[]>([]);
+  const [rename, setRename] = useState("");
 
   const MAX_UPLOAD_SIZE_MB = 100;
+
+  useEffect(() => {
+    void api.listSkillPoolSkills().then(setPoolSkills).catch(() => undefined);
+  }, [loading]);
+
+  const workspaceSkillOptions = useMemo(
+    () =>
+      skills.map((skill) => ({
+        label: skill.name,
+        value: skill.name,
+      })),
+    [skills],
+  );
+
+  const poolSkillOptions = useMemo(
+    () =>
+      poolSkills.map((skill) => ({
+        label: skill.name,
+        value: skill.name,
+      })),
+    [poolSkills],
+  );
+
+  const closePoolModal = () => {
+    setPoolModal(null);
+    setPoolSkillNames([]);
+    setWorkspaceSkillNames([]);
+    setRename("");
+  };
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
@@ -44,7 +85,6 @@ function SkillsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Reset input so the same file can be re-selected
     e.target.value = "";
 
     if (!file.name.toLowerCase().endsWith(".zip")) {
@@ -63,6 +103,16 @@ function SkillsPage() {
     await uploadSkill(file);
   };
 
+  const handleCreate = () => {
+    setEditingSkill(null);
+    form.resetFields();
+    form.setFieldsValue({
+      enabled: false,
+      channels: ["all"],
+    });
+    setDrawerOpen(true);
+  };
+
   const supportedSkillUrlPrefixes = [
     "https://skills.sh/",
     "https://clawhub.ai/",
@@ -75,15 +125,6 @@ function SkillsPage() {
 
   const isSupportedSkillUrl = (url: string) => {
     return supportedSkillUrlPrefixes.some((prefix) => url.startsWith(prefix));
-  };
-
-  const handleCreate = () => {
-    setEditingSkill(null);
-    form.resetFields();
-    form.setFieldsValue({
-      enabled: false,
-    });
-    setDrawerOpen(true);
   };
 
   const closeImportModal = () => {
@@ -125,18 +166,26 @@ function SkillsPage() {
 
   const handleEdit = (skill: SkillSpec) => {
     setEditingSkill(skill);
-    form.setFieldsValue(skill);
+    form.setFieldsValue({
+      name: skill.name,
+      description: skill.description,
+      content: skill.content,
+      enabled: skill.enabled,
+      channels: skill.channels,
+    });
     setDrawerOpen(true);
   };
 
   const handleToggleEnabled = async (skill: SkillSpec, e: React.MouseEvent) => {
     e.stopPropagation();
     await toggleEnabled(skill);
+    await refreshSkills();
   };
 
   const handleDelete = async (skill: SkillSpec, e?: React.MouseEvent) => {
     e?.stopPropagation();
     await deleteSkill(skill);
+    await refreshSkills();
   };
 
   const handleDrawerClose = () => {
@@ -144,14 +193,78 @@ function SkillsPage() {
     setEditingSkill(null);
   };
 
-  const handleSubmit = async (values: { name: string; content: string }) => {
+  const handleSubmit = async (values: SkillSpec) => {
     try {
+      const wasEnabled = editingSkill?.enabled ?? false;
       const success = await createSkill(values.name, values.content);
       if (success) {
+        await api.updateSkillChannels(values.name, values.channels || ["all"]);
+        if (wasEnabled) {
+          await toggleEnabled({ ...values, enabled: false } as SkillSpec);
+        }
         setDrawerOpen(false);
+        await refreshSkills();
       }
     } catch (error) {
       console.error("Submit failed", error);
+    }
+  };
+
+  const handleUploadToPool = async () => {
+    if (workspaceSkillNames.length === 0) return;
+    try {
+      for (const skillName of workspaceSkillNames) {
+        await api.uploadWorkspaceSkillToPool({
+          workspace_id: selectedAgent,
+          skill_name: skillName,
+          new_name:
+            workspaceSkillNames.length === 1
+              ? rename.trim() || undefined
+              : undefined,
+        });
+      }
+      message.success(t("skills.uploadedToPool"));
+      closePoolModal();
+      await refreshSkills();
+      setPoolSkills(await api.listSkillPoolSkills());
+    } catch (error) {
+      const detail = parseErrorDetail(error);
+      if (detail?.suggested_name) {
+        setRename(detail.suggested_name);
+        message.warning(t("skills.nameConflict"));
+        return;
+      }
+      message.error(error instanceof Error ? error.message : t("skills.uploadFailed"));
+    }
+  };
+
+  const handleDownloadFromPool = async () => {
+    if (poolSkillNames.length === 0) return;
+    try {
+      for (const skillName of poolSkillNames) {
+        await api.downloadSkillPoolSkill({
+          skill_name: skillName,
+          targets: [
+            {
+              workspace_id: selectedAgent,
+              target_name:
+                poolSkillNames.length === 1 ? rename.trim() || undefined : undefined,
+            },
+          ],
+        });
+      }
+      message.success(t("skills.downloadedToWorkspace"));
+      closePoolModal();
+      await refreshSkills();
+    } catch (error) {
+      const detail = parseErrorDetail(error);
+      const conflict = detail?.conflicts?.[0];
+      if (conflict?.suggested_name) {
+        setRename(conflict.suggested_name);
+        message.warning(t("skills.nameConflict"));
+        return;
+      }
+      message.error(error instanceof Error ? error.message : t("common.download") + " failed");
     }
   };
 
@@ -162,7 +275,7 @@ function SkillsPage() {
           <h1 className={styles.title}>{t("skills.title")}</h1>
           <p className={styles.description}>{t("skills.description")}</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className={styles.headerActions}>
           <input
             type="file"
             accept=".zip"
@@ -170,30 +283,61 @@ function SkillsPage() {
             onChange={handleFileChange}
             style={{ display: "none" }}
           />
-          <Button
-            type="primary"
-            onClick={handleUploadClick}
-            icon={<UploadOutlined />}
-            loading={uploading}
-            disabled={uploading}
-          >
-            {t("skills.uploadSkill")}
-          </Button>
-          <Button
-            type="primary"
-            onClick={handleImportFromHub}
-            icon={<DownloadOutlined />}
-          >
-            {t("skills.importSkills")}
-          </Button>
-          <Button type="primary" onClick={handleCreate} icon={<PlusOutlined />}>
-            {t("skills.createSkill")}
-          </Button>
+          <div className={styles.headerActionsLeft}>
+            <Tooltip title={t("skills.downloadFromPoolHint")}>
+              <Button
+                type="primary"
+                className={styles.primaryTransferButton}
+                onClick={() => setPoolModal("download")}
+                icon={<DownloadOutlined />}
+              >
+                {t("common.download")}
+              </Button>
+            </Tooltip>
+            <Tooltip title={t("skills.uploadToPoolHint")}>
+              <Button
+                type="primary"
+                className={styles.primaryTransferButton}
+                onClick={() => setPoolModal("upload")}
+                icon={<SwapOutlined />}
+              >
+                {t("common.upload")}
+              </Button>
+            </Tooltip>
+          </div>
+          <div className={styles.headerActionsRight}>
+            <Button
+              type="default"
+              className={styles.creationActionButton}
+              onClick={handleUploadClick}
+              icon={<UploadOutlined />}
+              loading={uploading}
+              disabled={uploading}
+            >
+              {t("skills.uploadSkill")}
+            </Button>
+            <Button
+              type="default"
+              className={styles.creationActionButton}
+              onClick={handleImportFromHub}
+              icon={<ImportOutlined />}
+            >
+              {t("skills.importSkills")}
+            </Button>
+            <Button
+              type="default"
+              className={styles.creationActionButton}
+              onClick={handleCreate}
+              icon={<PlusOutlined />}
+            >
+              {t("skills.createSkill")}
+            </Button>
+          </div>
         </div>
       </div>
 
       <Modal
-        title={t("skills.importSkills")}
+        title={`${t("skills.importSkills")} Hub`}
         open={importModalOpen}
         onCancel={closeImportModal}
         maskClosable={!importing}
@@ -220,6 +364,9 @@ function SkillsPage() {
         width={760}
       >
         <div className={styles.importHintBlock}>
+          <p className={styles.importHintTitle}>
+            External hub import is separate from the local Skill Pool.
+          </p>
           <p className={styles.importHintTitle}>
             {t("skills.supportedSkillUrlSources")}
           </p>
@@ -265,6 +412,34 @@ function SkillsPage() {
         <div className={styles.loading}>
           <span className={styles.loadingText}>{t("common.loading")}</span>
         </div>
+      ) : skills.length === 0 ? (
+        <div className={styles.emptyState}>
+          <div className={styles.emptyStateBadge}>
+            {t("skills.emptyStateBadge")}
+          </div>
+          <h2 className={styles.emptyStateTitle}>
+            {t("skills.emptyStateTitle")}
+          </h2>
+          <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
+          <div className={styles.emptyStateActions}>
+            <Button
+              type="primary"
+              className={styles.primaryTransferButton}
+              onClick={() => setPoolModal("download")}
+              icon={<DownloadOutlined />}
+            >
+              {t("skills.emptyStateDownload")}
+            </Button>
+            <Button
+              type="default"
+              className={styles.creationActionButton}
+              onClick={handleCreate}
+              icon={<PlusOutlined />}
+            >
+              {t("skills.emptyStateCreate")}
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className={styles.skillsGrid}>
           {skills
@@ -288,6 +463,93 @@ function SkillsPage() {
             ))}
         </div>
       )}
+
+      <Modal
+        open={poolModal !== null}
+        onCancel={closePoolModal}
+        onOk={poolModal === "upload" ? handleUploadToPool : handleDownloadFromPool}
+        title={
+          poolModal === "upload"
+            ? t("skills.uploadToPool")
+            : t("skills.downloadFromPool")
+        }
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          {poolModal === "upload" ? (
+            <>
+              <div className={styles.bulkActions}>
+                <Button
+                  size="small"
+                  onClick={() =>
+                    setWorkspaceSkillNames(workspaceSkillOptions.map((item) => item.value))
+                  }
+                >
+                  {t("skills.selectAll")}
+                </Button>
+                <Button size="small" onClick={() => setWorkspaceSkillNames([])}>
+                  {t("skills.clearSelection")}
+                </Button>
+              </div>
+              <Select
+                mode="multiple"
+                placeholder={t("skills.selectWorkspaceSkill")}
+                value={workspaceSkillNames}
+                options={workspaceSkillOptions}
+                onChange={(value: string[]) => setWorkspaceSkillNames(value)}
+              />
+            </>
+          ) : (
+            <>
+              <div className={styles.bulkActions}>
+                <Button
+                  size="small"
+                  onClick={() =>
+                    setPoolSkillNames(poolSkillOptions.map((item) => item.value))
+                  }
+                >
+                  {t("skills.selectAll")}
+                </Button>
+                <Button size="small" onClick={() => setPoolSkillNames([])}>
+                  {t("skills.clearSelection")}
+                </Button>
+              </div>
+              <Select
+                mode="multiple"
+                placeholder={t("skills.selectPoolItem")}
+                value={poolSkillNames}
+                options={poolSkillOptions}
+                onChange={(value: string[]) => setPoolSkillNames(value)}
+              />
+            </>
+          )}
+          <Form layout="vertical">
+            <Form.Item
+              label={t("skills.renameOptional")}
+              extra={
+                poolModal === "upload"
+                  ? workspaceSkillNames.length > 1
+                    ? t("skills.renameSingleOnly")
+                    : undefined
+                  : poolSkillNames.length > 1
+                    ? t("skills.renameSingleOnly")
+                    : undefined
+              }
+            >
+              <input
+                className={styles.importUrlInput}
+                value={rename}
+                onChange={(e) => setRename(e.target.value)}
+                placeholder={t("skills.renamePlaceholder")}
+                disabled={
+                  poolModal === "upload"
+                    ? workspaceSkillNames.length !== 1
+                    : poolSkillNames.length !== 1
+                }
+              />
+            </Form.Item>
+          </Form>
+        </div>
+      </Modal>
 
       <SkillDrawer
         open={drawerOpen}

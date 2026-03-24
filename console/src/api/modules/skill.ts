@@ -1,12 +1,16 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import type { HubSkillSpec, SkillSpec } from "../types";
+import type {
+  HubSkillSpec,
+  PoolSkillSpec,
+  SkillSpec,
+  WorkspaceSkillSummary,
+} from "../types";
 
 // Declare VITE_API_BASE_URL as global (injected by Vite)
 declare const VITE_API_BASE_URL: string;
 
-// Get the API base URL for streaming requests
 function getStreamApiUrl(): string {
   const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
   return `${base}/api`;
@@ -15,13 +19,53 @@ function getStreamApiUrl(): string {
 export const skillApi = {
   listSkills: () => request<SkillSpec[]>("/skills"),
 
-  createSkill: (skillName: string, content: string) =>
-    request<Record<string, unknown>>("/skills", {
+  listSkillWorkspaces: () =>
+    request<WorkspaceSkillSummary[]>("/skills/workspaces"),
+
+  listSkillPoolSkills: () => request<PoolSkillSpec[]>("/skills/pool"),
+
+  searchHubSkills: (q: string, limit: number = 20) =>
+    request<HubSkillSpec[]>(
+      `/skills/hub/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+
+  createSkill: (
+    skillName: string,
+    content: string,
+    config?: Record<string, unknown>,
+  ) =>
+    request<{ created: boolean; name: string }>("/skills", {
       method: "POST",
       body: JSON.stringify({
         name: skillName,
-        content: content,
+        content,
+        config,
       }),
+    }),
+
+  createSkillPoolSkill: (payload: {
+    name: string;
+    content: string;
+    config?: Record<string, unknown>;
+  }) =>
+    request<{ created: boolean; name: string }>("/skills/pool/create", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  saveSkillPoolSkill: (payload: {
+    name: string;
+    content: string;
+    source_name?: string;
+    config?: Record<string, unknown>;
+  }) =>
+    request<{
+      success: boolean;
+      mode: "edit" | "fork";
+      name: string;
+    }>("/skills/pool/save", {
+      method: "PUT",
+      body: JSON.stringify(payload),
     }),
 
   enableSkill: (skillName: string) =>
@@ -43,31 +87,6 @@ export const skillApi = {
   deleteSkill: (skillName: string) =>
     request<{ deleted: boolean }>(`/skills/${encodeURIComponent(skillName)}`, {
       method: "DELETE",
-    }),
-
-  searchHubSkills: (query: string, limit = 20) =>
-    request<HubSkillSpec[]>(
-      `/skills/hub/search?q=${encodeURIComponent(query)}&limit=${limit}`,
-    ),
-
-  installHubSkill: (
-    payload: {
-      bundle_url: string;
-      version?: string;
-      enable?: boolean;
-      overwrite?: boolean;
-    },
-    options?: { signal?: AbortSignal },
-  ) =>
-    request<{
-      installed: boolean;
-      name: string;
-      enabled: boolean;
-      source_url: string;
-    }>("/skills/hub/install", {
-      method: "POST",
-      body: JSON.stringify(payload),
-      signal: options?.signal,
     }),
 
   startHubSkillInstall: (payload: {
@@ -93,6 +112,21 @@ export const skillApi = {
       created_at: number;
       updated_at: number;
     }>("/skills/hub/install/start", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  importPoolSkillFromHub: (payload: {
+    bundle_url: string;
+    version?: string;
+    overwrite?: boolean;
+  }) =>
+    request<{
+      installed: boolean;
+      name: string;
+      enabled: boolean;
+      source_url: string;
+    }>("/skills/pool/import", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -124,7 +158,108 @@ export const skillApi = {
       },
     ),
 
-  // Stream optimize skill with SSE (supports abort via signal)
+  deleteSkillPoolSkill: (skillName: string) =>
+    request<{ deleted: boolean }>(`/skills/pool/${encodeURIComponent(skillName)}`, {
+      method: "DELETE",
+    }),
+
+  uploadWorkspaceSkillToPool: (payload: {
+    workspace_id: string;
+    skill_name: string;
+    new_name?: string;
+    overwrite?: boolean;
+  }) =>
+    request<{ success: boolean; name: string }>("/skills/pool/upload", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  downloadSkillPoolSkill: (payload: {
+    skill_name: string;
+    targets: Array<{ workspace_id: string; target_name?: string }>;
+    all_workspaces?: boolean;
+    overwrite?: boolean;
+  }) =>
+    request<{
+      downloaded: Array<{ workspace_id: string; name: string }>;
+    }>("/skills/pool/download", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  fetchLatestSkillPoolBuiltins: (
+    approve_conflicts: boolean = false,
+    preview_only: boolean = false,
+  ) =>
+    request<{
+      synced: string[];
+      additions: string[];
+      updates: string[];
+      conflicts: Array<{
+        skill_name: string;
+        suggested_name: string;
+        reason?: string;
+      }>;
+    }>(
+      "/skills/pool/fetch-latest",
+      {
+        method: "POST",
+        body: JSON.stringify({ approve_conflicts, preview_only }),
+      },
+    ),
+
+  updateSkillChannels: (skillName: string, channels: string[]) =>
+    request<{ updated: boolean; channels: string[] }>(
+      `/skills/${encodeURIComponent(skillName)}/channels`,
+      {
+        method: "PUT",
+        body: JSON.stringify(channels),
+      },
+    ),
+
+  getSkillConfig: (skillName: string) =>
+    request<{ config: Record<string, unknown> }>(
+      `/skills/${encodeURIComponent(skillName)}/config`,
+    ),
+
+  updateSkillConfig: (skillName: string, config: Record<string, unknown>) =>
+    request<{ updated: boolean }>(
+      `/skills/${encodeURIComponent(skillName)}/config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ config }),
+      },
+    ),
+
+  deleteSkillConfig: (skillName: string) =>
+    request<{ cleared: boolean }>(
+      `/skills/${encodeURIComponent(skillName)}/config`,
+      { method: "DELETE" },
+    ),
+
+  getPoolSkillConfig: (skillName: string) =>
+    request<{ config: Record<string, unknown> }>(
+      `/skills/pool/${encodeURIComponent(skillName)}/config`,
+    ),
+
+  updatePoolSkillConfig: (
+    skillName: string,
+    config: Record<string, unknown>,
+  ) =>
+    request<{ updated: boolean }>(
+      `/skills/pool/${encodeURIComponent(skillName)}/config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ config }),
+      },
+    ),
+
+  deletePoolSkillConfig: (skillName: string) =>
+    request<{ cleared: boolean }>(
+      `/skills/pool/${encodeURIComponent(skillName)}/config`,
+      { method: "DELETE" },
+    ),
+
   streamOptimizeSkill: async function (
     content: string,
     onChunk: (text: string) => void,
@@ -176,7 +311,7 @@ export const skillApi = {
                 return;
               }
             } catch {
-              // Skip invalid JSON
+              // Ignore malformed chunks.
             }
           }
         }
@@ -214,10 +349,36 @@ export const skillApi = {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Upload failed: ${response.status} ${response.statusText} - ${errorText}`,
-      );
+      throw new Error(await response.text());
+    }
+
+    return await response.json();
+  },
+
+  uploadSkillPoolZip: async (
+    file: File,
+    options?: { overwrite?: boolean },
+  ): Promise<{ imported: string[]; count: number }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const params = new URLSearchParams();
+    if (options?.overwrite !== undefined) {
+      params.set("overwrite", String(options.overwrite));
+    }
+    const qs = params.toString();
+    const url = getApiUrl(`/skills/pool/upload-zip${qs ? `?${qs}` : ""}`);
+
+    const headers = buildAuthHeaders();
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
     }
 
     return await response.json();

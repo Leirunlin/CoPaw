@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""CLI skill: list and interactively enable/disable skills."""
+"""CLI skill: list and interactively enable/disable workspace skills."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import click
 
-from ..agents.skills_manager import SkillService, list_available_skills
+from ..agents.skills_manager import SkillService, read_skill_manifest
 from ..constant import WORKING_DIR
 from ..config import load_config
 from .utils import prompt_checkbox, prompt_confirm
@@ -42,16 +42,21 @@ def configure_skills_interactive(
         click.echo("No skills found. Nothing to configure.")
         return
 
-    available = set(list_available_skills(working_dir))
+    enabled = {
+        name
+        for name, entry in read_skill_manifest(working_dir)
+        .get("skills", {})
+        .items()
+        if entry.get("enabled", False)
+    }
     all_names = {s.name for s in all_skills}
 
-    # Default to all skills if nothing is currently active (first time)
-    default_checked = available if available else all_names
+    default_checked = enabled if enabled else all_names
 
     # Build checkbox options: (label, value)
     options: list[tuple[str, str]] = []
     for skill in sorted(all_skills, key=lambda s: s.name):
-        status = "✓" if skill.name in available else "✗"
+        status = "✓" if skill.name in enabled else "✗"
         label = f"{skill.name}  [{status}] ({skill.source})"
         options.append((label, skill.name))
 
@@ -73,8 +78,8 @@ def configure_skills_interactive(
     selected_set = set(selected)
 
     # Show preview of changes
-    to_enable = selected_set - available
-    to_disable = (all_names & available) - selected_set
+    to_enable = selected_set - enabled
+    to_disable = (all_names & enabled) - selected_set
 
     if not to_enable and not to_disable:
         click.echo("\nNo changes needed.")
@@ -105,7 +110,7 @@ def configure_skills_interactive(
     # Apply changes
     for name in to_enable:
         result = skill_service.enable_skill(name)
-        if result:
+        if result.get("success"):
             click.echo(f"  ✓ Enabled: {name}")
         else:
             click.echo(
@@ -114,7 +119,7 @@ def configure_skills_interactive(
 
     for name in to_disable:
         result = skill_service.disable_skill(name)
-        if result:
+        if result.get("success"):
             click.echo(f"  ✓ Disabled: {name}")
         else:
             click.echo(
@@ -143,7 +148,13 @@ def list_cmd(agent_id: str) -> None:
 
     skill_service = SkillService(working_dir)
     all_skills = skill_service.list_all_skills()
-    available = set(list_available_skills(working_dir))
+    enabled = {
+        name
+        for name, entry in read_skill_manifest(working_dir)
+        .get("skills", {})
+        .items()
+        if entry.get("enabled", False)
+    }
 
     if not all_skills:
         click.echo("No skills found.")
@@ -156,13 +167,13 @@ def list_cmd(agent_id: str) -> None:
     for skill in sorted(all_skills, key=lambda s: s.name):
         status = (
             click.style("✓ enabled", fg="green")
-            if skill.name in available
+            if skill.name in enabled
             else click.style("✗ disabled", fg="red")
         )
         click.echo(f"  {skill.name:<30s} {skill.source:<12s} {status}")
 
     click.echo(f"{'─' * 50}")
-    enabled_count = sum(1 for s in all_skills if s.name in available)
+    enabled_count = sum(1 for s in all_skills if s.name in enabled)
     click.echo(
         f"  Total: {len(all_skills)} skills, "
         f"{enabled_count} enabled, "

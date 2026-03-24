@@ -9,16 +9,17 @@ Two ways to manage skills:
 
 > If you're new to channels, heartbeat, or cron, read [Introduction](./intro) first.
 
-The app loads skills from the working directory `skills` folder (default
-`~/.copaw/active_skills/`): any subdirectory containing a `SKILL.md` is loaded as a
-skill; no extra registration.
+Each workspace stores its local skills in `skills/` and controls whether they
+are active through `skill.json`. Any subdirectory containing a `SKILL.md` is
+recognized as a skill; no extra registration is needed.
 
 ---
 
 ## Built-in skills overview
 
-The following skills are built-in. They are synced to the working directory
-when needed; you can enable or disable them in the Console or via config.
+The following skills are built-in. They are available through the local skill
+pool and can be downloaded into a workspace when needed; once present in a
+workspace, you can enable or disable them there.
 
 | Skill                        | Description                                                                                                                                                                 | Source                                                         |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -44,16 +45,17 @@ In the [Console](./console), go to **Agent → Skills** to:
 - **Create** a custom skill by entering a name and content (no need to create a directory);
 - **Edit** an existing skill’s name or content.
 
-Changes are synced to the working directory and affect the agent. Handy if you prefer not to edit files directly.
+Changes are written to the workspace `skills/` directory and `skill.json`, and
+take effect for that workspace. Handy if you prefer not to edit files directly.
 
 ---
 
 ## Built-in skill: Cron (scheduled tasks)
 
-On first run the **Cron** skill is synced from the package to
-`~/.copaw/active_skills/cron/`. It provides “run on a schedule and send results to a
-channel.” You manage jobs with the [CLI](./cli) (`copaw cron`) or in the
-Console under **Control → Cron Jobs**; no need to edit skill files.
+The **Cron** skill is built in and can be added to a workspace from the skill
+pool. It provides “run on a schedule and send results to a channel.” You
+manage jobs with the [CLI](./cli) (`copaw cron`) or in the Console under
+**Control → Cron Jobs**; no need to edit skill files.
 
 Common operations:
 
@@ -119,25 +121,28 @@ You can import skills from these URL sources in the Console:
 
 ## Custom skills (in the working directory)
 
-To add your own instructions or capabilities via the file system, add a custom skill under the `customized_skills` directory.
+To add your own instructions or capabilities via the file system, add a custom
+skill under a workspace's `skills/` directory.
 
 ### Steps
 
-1. Create a directory under `~/.copaw/customized_skills/`, e.g. `my_skill`.
-2. Add a `SKILL.md` file in that directory. Write Markdown that describes the capability for the agent. It is recommended to use YAML front matter at the top with `name` and `description` (`metadata` is optional) so the agent and Console can display and manage the skill correctly. Skills are still discovered as long as the directory contains a `SKILL.md`, but may show incomplete information without this front matter.
+1. Create a directory under `~/.copaw/workspaces/{agent_id}/skills/`, e.g.
+   `my_skill`.
+2. Add a `SKILL.md` file in that directory. Write Markdown that describes the capability for the agent. You can optionally use YAML front matter at the top for `name`, `description`, and `metadata` (for the agent or Console). If the skill depends on external binaries or environment variables, declare them in `metadata.requires`; CoPaw exposes them as `require_bins` and `require_envs` metadata, but does not disable the skill automatically.
 
 ### Directory layout example
 
 ```
 ~/.copaw/
-  active_skills/        # Activated skills (merged from built-in + custom)
+  skill_pool/           # Shared local pool (built-ins + shared custom skills)
     cron/
       SKILL.md
-    my_skill/
-      SKILL.md
-  customized_skills/    # User-created custom skills (add here)
-    my_skill/
-      SKILL.md
+  workspaces/
+    default/
+      skills/           # Skills available to this workspace
+        my_skill/
+          SKILL.md
+      skill.json        # Per-workspace enabled/channels/metadata state
 ```
 
 ### Example SKILL.md
@@ -146,6 +151,10 @@ To add your own instructions or capabilities via the file system, add a custom s
 ---
 name: my_skill
 description: My custom capability
+metadata (optional):
+  requires:
+    bins: [ffmpeg]
+    env: [MY_SKILL_API_KEY]
 ---
 
 # Usage
@@ -153,7 +162,10 @@ description: My custom capability
 This skill is used for…
 ```
 
-On startup the app merges built-in skills with custom skills from `~/.copaw/customized_skills/` into `~/.copaw/active_skills/`; custom skills take priority when names collide. Your custom directories are never overwritten; built-in skills are only copied to `active_skills` when missing.
+Built-in skills live in the local `skill_pool/`. Workspaces are decoupled from
+the pool: downloading a skill copies it into that workspace's `skills/`
+directory, and `skill.json` decides whether it is enabled there. Requirement
+metadata is kept for UI and tooling hints, not as a hard activation gate.
 
 ---
 
