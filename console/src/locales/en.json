@@ -154,7 +154,14 @@
     "defaultNotDisablable": "Default agent cannot be disabled",
     "currentAgentDisabled": "Current agent has been disabled, automatically switched to default agent",
     "switchedToDefault": "Automatically switched to default agent",
-    "cannotSwitchToDisabled": "This agent is disabled, please enable it in the management page first"
+    "cannotSwitchToDisabled": "This agent is disabled, please enable it in the management page first",
+    "initialSkills": "Initial Skills",
+    "initialSkillsHelp": "Select skills to add from the pool. You can add or remove skills later.",
+    "selectAll": "All",
+    "selectBuiltin": "Builtin",
+    "selectNone": "None",
+    "noPoolSkills": "No skills available in pool",
+    "addSkillsToAgent": "Add Skills"
   },
   "skills": {
     "title": "Skills",

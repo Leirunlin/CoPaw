@@ -2,6 +2,7 @@ import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
+  HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
   SkillSpec,
@@ -95,23 +96,7 @@ export const skillApi = {
     enable?: boolean;
     overwrite?: boolean;
   }) =>
-    request<{
-      task_id: string;
-      bundle_url: string;
-      version: string;
-      enable: boolean;
-      overwrite: boolean;
-      status: "pending" | "importing" | "completed" | "failed" | "cancelled";
-      error: string | null;
-      result: {
-        installed: boolean;
-        name: string;
-        enabled: boolean;
-        source_url: string;
-      } | null;
-      created_at: number;
-      updated_at: number;
-    }>("/skills/hub/install/start", {
+    request<HubInstallTaskResponse>("/skills/hub/install/start", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -132,23 +117,9 @@ export const skillApi = {
     }),
 
   getHubSkillInstallStatus: (taskId: string) =>
-    request<{
-      task_id: string;
-      bundle_url: string;
-      version: string;
-      enable: boolean;
-      overwrite: boolean;
-      status: "pending" | "importing" | "completed" | "failed" | "cancelled";
-      error: string | null;
-      result: {
-        installed: boolean;
-        name: string;
-        enabled: boolean;
-        source_url: string;
-      } | null;
-      created_at: number;
-      updated_at: number;
-    }>(`/skills/hub/install/status/${encodeURIComponent(taskId)}`),
+    request<HubInstallTaskResponse>(
+      `/skills/hub/install/status/${encodeURIComponent(taskId)}`,
+    ),
 
   cancelHubSkillInstall: (taskId: string) =>
     request<{ task_id: string; status: string }>(

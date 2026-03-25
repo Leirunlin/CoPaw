@@ -24,7 +24,13 @@ import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { PoolSkillSpec, WorkspaceSkillSummary } from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
-import { getSkillDisplaySource, getSkillVisual } from "../Skills/components";
+import {
+  getSkillDisplaySource,
+  getSkillVisual,
+  parseFrontmatter,
+  isSupportedSkillUrl,
+  SUPPORTED_SKILL_URL_PREFIXES,
+} from "../Skills/components";
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import styles from "../Skills/index.module.less";
 
@@ -57,19 +63,6 @@ function SkillPoolPage() {
   const [form] = Form.useForm();
   const [drawerContent, setDrawerContent] = useState("");
   const [showMarkdown, setShowMarkdown] = useState(true);
-
-  const supportedSkillUrlPrefixes = [
-    "https://skills.sh/",
-    "https://clawhub.ai/",
-    "https://skillsmp.com/",
-    "https://lobehub.com/",
-    "https://market.lobehub.com/",
-    "https://github.com/",
-    "https://modelscope.cn/skills/",
-  ];
-
-  const isSupportedSkillUrl = (url: string) =>
-    supportedSkillUrlPrefixes.some((prefix) => url.startsWith(prefix));
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -174,28 +167,6 @@ function SkillPoolPage() {
     },
     [drawerContent, t],
   );
-
-  const parseFrontmatter = (content: string): Record<string, string> | null => {
-    const trimmed = content.trim();
-    if (!trimmed.startsWith("---")) return null;
-
-    const endIndex = trimmed.indexOf("---", 3);
-    if (endIndex === -1) return null;
-
-    const frontmatterBlock = trimmed.slice(3, endIndex).trim();
-    if (!frontmatterBlock) return null;
-
-    const result: Record<string, string> = {};
-    for (const line of frontmatterBlock.split("\n")) {
-      const colonIndex = line.indexOf(":");
-      if (colonIndex > 0) {
-        const key = line.slice(0, colonIndex).trim();
-        const value = line.slice(colonIndex + 1).trim();
-        result[key] = value;
-      }
-    }
-    return result;
-  };
 
   const handleUpload = async () => {
     if (!workspaceId || !workspaceSkillName) return;
@@ -669,13 +640,9 @@ function SkillPoolPage() {
             {t("skills.supportedSkillUrlSources")}
           </p>
           <ul className={styles.importHintList}>
-            <li>https://skills.sh/</li>
-            <li>https://clawhub.ai/</li>
-            <li>https://skillsmp.com/</li>
-            <li>https://lobehub.com/</li>
-            <li>https://market.lobehub.com/</li>
-            <li>https://github.com/</li>
-            <li>https://modelscope.cn/skills/</li>
+            {SUPPORTED_SKILL_URL_PREFIXES.map((url) => (
+              <li key={url}>{url}</li>
+            ))}
           </ul>
           <p className={styles.importHintTitle}>{t("skills.urlExamples")}</p>
           <ul className={styles.importHintList}>

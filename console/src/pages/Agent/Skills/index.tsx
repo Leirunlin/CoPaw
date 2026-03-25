@@ -15,7 +15,12 @@ import {
   UploadOutlined,
 } from "@ant-design/icons";
 import type { PoolSkillSpec, SkillSpec } from "../../../api/types";
-import { SkillCard, SkillDrawer } from "./components";
+import {
+  SkillCard,
+  SkillDrawer,
+  isSupportedSkillUrl,
+  SUPPORTED_SKILL_URL_PREFIXES,
+} from "./components";
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -123,20 +128,6 @@ function SkillsPage() {
       channels: ["all"],
     });
     setDrawerOpen(true);
-  };
-
-  const supportedSkillUrlPrefixes = [
-    "https://skills.sh/",
-    "https://clawhub.ai/",
-    "https://skillsmp.com/",
-    "https://lobehub.com/",
-    "https://market.lobehub.com/",
-    "https://github.com/",
-    "https://modelscope.cn/skills/",
-  ];
-
-  const isSupportedSkillUrl = (url: string) => {
-    return supportedSkillUrlPrefixes.some((prefix) => url.startsWith(prefix));
   };
 
   const closeImportModal = () => {
@@ -391,13 +382,9 @@ function SkillsPage() {
             {t("skills.supportedSkillUrlSources")}
           </p>
           <ul className={styles.importHintList}>
-            <li>https://skills.sh/</li>
-            <li>https://clawhub.ai/</li>
-            <li>https://skillsmp.com/</li>
-            <li>https://lobehub.com/</li>
-            <li>https://market.lobehub.com/</li>
-            <li>https://github.com/</li>
-            <li>https://modelscope.cn/skills/</li>
+            {SUPPORTED_SKILL_URL_PREFIXES.map((url) => (
+              <li key={url}>{url}</li>
+            ))}
           </ul>
           <p className={styles.importHintTitle}>{t("skills.urlExamples")}</p>
           <ul className={styles.importHintList}>

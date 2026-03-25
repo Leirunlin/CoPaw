@@ -53,6 +53,11 @@ _WORKSPACE_ITEMS_TO_MIGRATE = [
     ("BOOTSTRAP.md", False),
 ]
 
+_WORKSPACE_JSON_DEFAULTS: list[tuple[str, dict]] = [
+    ("chats.json", {"version": 1, "chats": []}),
+    ("jobs.json", {"version": 1, "jobs": []}),
+]
+
 
 def migrate_legacy_workspace_to_default_agent() -> bool:
     """Migrate legacy single-agent workspace to default agent workspace.
@@ -791,6 +796,19 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
     return migrated
 
 
+def _ensure_workspace_json_files(
+    workspace_dir: Path,
+    label: str = "",
+) -> None:
+    for filename, default in _WORKSPACE_JSON_DEFAULTS:
+        filepath = workspace_dir / filename
+        if not filepath.exists():
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(default, f, ensure_ascii=False, indent=2)
+            if label:
+                logger.debug("Created %s for %s", filename, label)
+
+
 def ensure_default_agent_exists() -> None:
     """Ensure that the default agent exists in config.
 
@@ -814,29 +832,7 @@ def ensure_default_agent_exists() -> None:
     # Ensure workspace directory exists
     default_workspace.mkdir(parents=True, exist_ok=True)
 
-    # Always ensure chats.json exists (even if agent already registered)
-    chats_file = default_workspace / "chats.json"
-    if not chats_file.exists():
-        with open(chats_file, "w", encoding="utf-8") as f:
-            json.dump(
-                {"version": 1, "chats": []},
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        logger.debug("Created chats.json for default agent")
-
-    # Always ensure jobs.json exists (even if agent already registered)
-    jobs_file = default_workspace / "jobs.json"
-    if not jobs_file.exists():
-        with open(jobs_file, "w", encoding="utf-8") as f:
-            json.dump(
-                {"version": 1, "jobs": []},
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        logger.debug("Created jobs.json for default agent")
+    _ensure_workspace_json_files(default_workspace, "default agent")
 
     # Only update config if agent didn't exist
     if not agent_existed:
@@ -918,27 +914,7 @@ def ensure_qa_agent_exists() -> None:
 
     qa_workspace.mkdir(parents=True, exist_ok=True)
 
-    chats_file = qa_workspace / "chats.json"
-    if not chats_file.exists():
-        with open(chats_file, "w", encoding="utf-8") as f:
-            json.dump(
-                {"version": 1, "chats": []},
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        logger.debug("Created chats.json for QA agent")
-
-    jobs_file = qa_workspace / "jobs.json"
-    if not jobs_file.exists():
-        with open(jobs_file, "w", encoding="utf-8") as f:
-            json.dump(
-                {"version": 1, "jobs": []},
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        logger.debug("Created jobs.json for QA agent")
+    _ensure_workspace_json_files(qa_workspace, "QA agent")
 
     if agent_existed:
         return
