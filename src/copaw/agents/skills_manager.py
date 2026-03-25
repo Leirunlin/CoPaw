@@ -286,7 +286,27 @@ def _default_pool_manifest() -> dict[str, Any]:
         "schema_version": "skill-pool-manifest.v1",
         "version": 0,
         "skills": {},
+        "builtin_skill_names": [],
     }
+
+
+def _get_builtin_skill_names() -> list[str]:
+    """Get list of builtin skill names from src/copaw/agents/skills/."""
+    builtin_dir = get_builtin_skills_dir()
+    if not builtin_dir.exists():
+        return []
+    return sorted(
+        [
+            p.name
+            for p in builtin_dir.iterdir()
+            if p.is_dir() and (p / "SKILL.md").exists()
+        ],
+    )
+
+
+def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
+    """Check if skill name is in builtin list."""
+    return skill_name in builtin_names
 
 
 def _is_hidden(name: str) -> bool:
@@ -621,6 +641,7 @@ def _sync_builtin_skills_into_pool(
     # pylint: disable=too-many-branches
     def _process(payload: dict[str, Any]) -> dict[str, list[Any]]:
         skills = payload.setdefault("skills", {})
+        payload["builtin_skill_names"] = _get_builtin_skill_names()
         for skill_dir in sorted(builtin_dir.iterdir()):
             if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
                 continue
@@ -667,7 +688,7 @@ def _sync_builtin_skills_into_pool(
                 skills[suggested_name] = _build_skill_metadata(
                     suggested_name,
                     renamed_target,
-                    source=str(existing_source or "shared"),
+                    source=str(existing_source or "customized"),
                     origin=existing.get("origin") or {},
                     protected=bool(existing.get("protected", False)),
                 )
@@ -790,8 +811,12 @@ def reconcile_pool_manifest() -> dict[str, Any]:
     if not manifest_path.exists():
         _write_json_atomic(manifest_path, _default_pool_manifest())
 
+    builtin_names = _get_builtin_skill_names()
+    builtin_dir = get_builtin_skills_dir()
+
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
         payload.setdefault("skills", {})
+        payload["builtin_skill_names"] = builtin_names
         skills = payload["skills"]
 
         discovered = {
@@ -802,9 +827,27 @@ def reconcile_pool_manifest() -> dict[str, Any]:
 
         for skill_name, skill_dir in sorted(discovered.items()):
             existing = skills.get(skill_name, {})
-            source = existing.get("source", "shared")
-            protected = bool(existing.get("protected", False))
+            is_builtin_name = _is_builtin_skill(skill_name, builtin_names)
+
+            if is_builtin_name:
+                src_skill_dir = builtin_dir / skill_name
+                if src_skill_dir.exists():
+                    pool_signature = _build_signature(skill_dir)
+                    src_signature = _build_signature(src_skill_dir)
+                    source = (
+                        "builtin"
+                        if pool_signature == src_signature
+                        else "customized"
+                    )
+                else:
+                    source = "customized"
+            else:
+                source = "customized"
+
+            protected = source == "builtin"
             origin = existing.get("origin") or {}
+            if source == "builtin":
+                origin = {"type": "builtin"}
             has_config = "config" in existing
             config = existing.get("config") if has_config else None
             skills[skill_name] = _build_skill_metadata(
@@ -823,10 +866,10 @@ def reconcile_pool_manifest() -> dict[str, Any]:
             if skill_name not in discovered
         ]
         for skill_name in missing:
-            if skills[skill_name].get("source") == "builtin":
-                builtin_dir = get_builtin_skills_dir() / skill_name
-                if builtin_dir.exists():
-                    _copy_skill_dir(builtin_dir, pool_dir / skill_name)
+            if skill_name in builtin_names:
+                src_skill_dir = builtin_dir / skill_name
+                if src_skill_dir.exists():
+                    _copy_skill_dir(src_skill_dir, pool_dir / skill_name)
                     skills[skill_name] = _build_skill_metadata(
                         skill_name,
                         pool_dir / skill_name,
@@ -866,7 +909,7 @@ def _compute_sync_to_pool(
         ``conflict``.
     """
     origin = entry.get("origin") or {}
-    pool_name = origin.get("pool_name") or origin.get("hub_name") or skill_name
+    pool_name = origin.get("pool_name") or skill_name
     pool_entry = pool_manifest.get("skills", {}).get(pool_name)
 
     if pool_entry is None:
@@ -904,6 +947,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         get_pool_skill_manifest_path(),
         _default_pool_manifest(),
     )
+    builtin_names = pool_manifest.get("builtin_skill_names", [])
 
     if not manifest_path.exists():
         _write_json_atomic(manifest_path, _default_workspace_manifest())
@@ -922,11 +966,28 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
             existing = skills.get(skill_name) or {}
             enabled = bool(existing.get("enabled", False))
             channels = existing.get("channels") or ["all"]
-            source = (
-                "builtin"
-                if existing.get("source", "customized") == "builtin"
-                else "customized"
-            )
+
+            # Source logic:
+            # - If name NOT in builtin_names -> customized
+            # - If name IN builtin_names AND signature matches pool builtin
+            #   -> builtin
+            # - If name IN builtin_names BUT signature differs -> customized
+            workspace_signature = _build_signature(skill_dir)
+            is_builtin_name = _is_builtin_skill(skill_name, builtin_names)
+
+            if is_builtin_name:
+                pool_entry = pool_manifest.get("skills", {}).get(skill_name)
+                pool_signature = (
+                    pool_entry.get("signature", "") if pool_entry else ""
+                )
+                source = (
+                    "builtin"
+                    if workspace_signature == pool_signature
+                    else "customized"
+                )
+            else:
+                source = "customized"
+
             origin = existing.get("origin") or {}
             metadata = _build_skill_metadata(
                 skill_name,
@@ -1558,7 +1619,7 @@ class SkillPoolService:
         for skill_name, entry in sorted(manifest.get("skills", {}).items()):
             skill = _read_skill_from_dir(
                 pool_dir / skill_name,
-                entry.get("source", "shared"),
+                entry.get("source", "customized"),
             )
             if skill is not None:
                 skills.append(skill)
@@ -1601,7 +1662,7 @@ class SkillPoolService:
             payload["skills"][skill_name] = _build_skill_metadata(
                 skill_name,
                 skill_dir,
-                source="shared",
+                source="customized",
                 origin={"type": "pool_create"},
                 protected=False,
             )
@@ -1645,7 +1706,7 @@ class SkillPoolService:
                     payload["skills"][skill_name] = _build_skill_metadata(
                         skill_name,
                         pool_dir / skill_name,
-                        source="shared",
+                        source="customized",
                         origin={"type": "pool_import"},
                         protected=False,
                     )
@@ -1790,7 +1851,7 @@ class SkillPoolService:
             next_entry = _build_skill_metadata(
                 final_name,
                 skill_dir,
-                source="shared",
+                source="customized",
                 origin={
                     "type": "pool_edit"
                     if not entry.get("protected")
@@ -1880,7 +1941,7 @@ class SkillPoolService:
             entry = _build_skill_metadata(
                 final_name,
                 target_dir,
-                source="shared",
+                source="customized",
                 origin={
                     "type": "workspace_upload",
                     "workspace_id": workspace_dir.name,

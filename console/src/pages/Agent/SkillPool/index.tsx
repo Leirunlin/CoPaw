@@ -6,6 +6,8 @@ import {
   Modal,
   Tooltip,
   message,
+  Drawer,
+  Form,
 } from "@agentscope-ai/design";
 import {
   CheckOutlined,
@@ -23,6 +25,7 @@ import api from "../../../api";
 import type { PoolSkillSpec, WorkspaceSkillSummary } from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
 import { getSkillDisplaySource, getSkillVisual } from "../Skills/components";
+import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import styles from "../Skills/index.module.less";
 
 type PoolMode = "upload" | "download" | "create" | "edit";
@@ -42,7 +45,6 @@ function SkillPoolPage() {
   const [workspaceSkillName, setWorkspaceSkillName] = useState<string>();
   const [targetWorkspaceIds, setTargetWorkspaceIds] = useState<string[]>([]);
   const [rename, setRename] = useState("");
-  const [content, setContent] = useState("");
   const [name, setName] = useState("");
   const [configText, setConfigText] = useState("{}");
   const zipInputRef = useRef<HTMLInputElement>(null);
@@ -50,6 +52,11 @@ function SkillPoolPage() {
   const [importUrl, setImportUrl] = useState("");
   const [importUrlError, setImportUrlError] = useState("");
   const [importing, setImporting] = useState(false);
+
+  // Form state for create/edit drawer
+  const [form] = Form.useForm();
+  const [drawerContent, setDrawerContent] = useState("");
+  const [showMarkdown, setShowMarkdown] = useState(true);
 
   const supportedSkillUrlPrefixes = [
     "https://skills.sh/",
@@ -94,15 +101,19 @@ function SkillPoolPage() {
     setTargetWorkspaceIds([]);
     setRename("");
     setName("");
-    setContent("");
     setConfigText("{}");
   };
 
   const openCreate = () => {
     setMode("create");
     setName("");
-    setContent("");
+    setDrawerContent("");
     setConfigText("{}");
+    form.resetFields();
+    form.setFieldsValue({
+      name: "",
+      content: "",
+    });
   };
 
   const openDownload = (skill?: PoolSkillSpec) => {
@@ -123,8 +134,67 @@ function SkillPoolPage() {
     setMode("edit");
     setActiveSkill(skill);
     setName(skill.protected ? `${skill.name}_custom` : skill.name);
-    setContent(skill.content);
+    setDrawerContent(skill.content);
     setConfigText(JSON.stringify(skill.config || {}, null, 2));
+    form.setFieldsValue({
+      name: skill.name,
+      content: skill.content,
+    });
+  };
+
+  const closeDrawer = () => {
+    setMode(null);
+    setActiveSkill(null);
+  };
+
+  const handleDrawerContentChange = (content: string) => {
+    setDrawerContent(content);
+    form.setFieldsValue({ content });
+  };
+
+  const validateFrontmatter = useCallback(
+    (_: unknown, value: string) => {
+      const content = drawerContent || value;
+      if (!content || !content.trim()) {
+        return Promise.reject(new Error(t("skills.pleaseInputContent")));
+      }
+      const fm = parseFrontmatter(content);
+      if (!fm) {
+        return Promise.reject(new Error(t("skills.frontmatterRequired")));
+      }
+      if (!fm.name) {
+        return Promise.reject(new Error(t("skills.frontmatterNameRequired")));
+      }
+      if (!fm.description) {
+        return Promise.reject(
+          new Error(t("skills.frontmatterDescriptionRequired")),
+        );
+      }
+      return Promise.resolve();
+    },
+    [drawerContent, t],
+  );
+
+  const parseFrontmatter = (content: string): Record<string, string> | null => {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith("---")) return null;
+
+    const endIndex = trimmed.indexOf("---", 3);
+    if (endIndex === -1) return null;
+
+    const frontmatterBlock = trimmed.slice(3, endIndex).trim();
+    if (!frontmatterBlock) return null;
+
+    const result: Record<string, string> = {};
+    for (const line of frontmatterBlock.split("\n")) {
+      const colonIndex = line.indexOf(":");
+      if (colonIndex > 0) {
+        const key = line.slice(0, colonIndex).trim();
+        const value = line.slice(colonIndex + 1).trim();
+        result[key] = value;
+      }
+    }
+    return result;
   };
 
   const handleUpload = async () => {
@@ -191,7 +261,9 @@ function SkillPoolPage() {
   };
 
   const handleSavePoolSkill = async () => {
-    if (!name.trim() || !content.trim()) return;
+    const values = await form.validateFields().catch(() => null);
+    if (!values) return;
+
     const trimmedConfig = configText.trim();
     let parsedConfig: Record<string, unknown> = {};
     if (trimmedConfig && trimmedConfig !== "{}") {
@@ -202,19 +274,25 @@ function SkillPoolPage() {
         return;
       }
     }
+
+    const skillName = name.trim() || values.name;
+    const skillContent = drawerContent || values.content;
+
+    if (!skillName.trim() || !skillContent.trim()) return;
+
     try {
       const result =
         mode === "edit"
           ? await api.saveSkillPoolSkill({
-              name: name.trim(),
-              content,
+              name: skillName,
+              content: skillContent,
               source_name: activeSkill?.name,
               config: parsedConfig,
             })
           : await api
               .createSkillPoolSkill({
-                name: name.trim(),
-                content,
+                name: skillName,
+                content: skillContent,
                 config: parsedConfig,
               })
               .then((created) => ({
@@ -229,7 +307,7 @@ function SkillPoolPage() {
           ? t("common.save")
           : t("common.create"),
       );
-      closeModal();
+      closeDrawer();
       await loadData();
     } catch (error) {
       const detail = parseErrorDetail(error);
@@ -445,6 +523,14 @@ function SkillPoolPage() {
             <Button
               type="default"
               className={styles.creationActionButton}
+              icon={<UploadOutlined />}
+              onClick={() => zipInputRef.current?.click()}
+            >
+              {t("skills.uploadSkill")}
+            </Button>
+            <Button
+              type="default"
+              className={styles.creationActionButton}
               icon={<ImportOutlined />}
               onClick={() => setImportModalOpen(true)}
             >
@@ -453,18 +539,10 @@ function SkillPoolPage() {
             <Button
               type="default"
               className={styles.creationActionButton}
-              icon={<UploadOutlined />}
-              onClick={() => zipInputRef.current?.click()}
-            >
-              {t("skillPool.zipImport")}
-            </Button>
-            <Button
-              type="default"
-              className={styles.creationActionButton}
               icon={<PlusOutlined />}
               onClick={openCreate}
             >
-              {t("skillPool.create")}
+              {t("skills.createSkill")}
             </Button>
           </div>
         </div>
@@ -837,42 +915,61 @@ function SkillPoolPage() {
         </div>
       </Modal>
 
-      <Modal
+      <Drawer
+        width={520}
+        placement="right"
+        title={mode === "edit" ? t("skillPool.editTitle", { name: activeSkill?.name || "" }) : t("skillPool.createTitle")}
         open={mode === "create" || mode === "edit"}
-        onCancel={closeModal}
-        onOk={handleSavePoolSkill}
-        title={
-          mode === "edit"
-            ? t("skillPool.editTitle", { name: activeSkill?.name || "" })
-            : t("skillPool.createTitle")
+        onClose={closeDrawer}
+        destroyOnClose
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button onClick={closeDrawer}>{t("common.cancel")}</Button>
+            <Button type="primary" onClick={handleSavePoolSkill}>
+              {mode === "edit" ? t("common.save") : t("common.create")}
+            </Button>
+          </div>
         }
-        width={760}
       >
-        <div style={{ display: "grid", gap: 12 }}>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("skillPool.skillNamePlaceholder")}
-          />
-          <Input.TextArea
-            rows={16}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder={t("skillPool.contentPlaceholder")}
-          />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-              {t("skills.config")}
-            </div>
+        <Form form={form} layout="vertical" onFinish={handleSavePoolSkill}>
+          <Form.Item
+            name="name"
+            label={t("skillPool.skillName")}
+            rules={[{ required: true, message: t("skills.pleaseInputName") }]}
+          >
+            <Input placeholder={t("skillPool.skillNamePlaceholder")} disabled={mode === "edit"} />
+          </Form.Item>
+
+          <Form.Item
+            name="content"
+            label="Content"
+            rules={[{ required: true, validator: validateFrontmatter }]}
+          >
+            <MarkdownCopy
+              content={drawerContent}
+              showMarkdown={showMarkdown}
+              onShowMarkdownChange={setShowMarkdown}
+              editable={true}
+              onContentChange={handleDrawerContentChange}
+              textareaProps={{
+                placeholder: t("skillPool.contentPlaceholder"),
+                rows: 12,
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item label={t("skills.config")}>
             <Input.TextArea
               rows={4}
               value={configText}
-              onChange={(e) => setConfigText(e.target.value)}
+              onChange={(e) => {
+                setConfigText(e.target.value);
+              }}
               placeholder={t("skills.configPlaceholder")}
             />
-          </div>
-        </div>
-      </Modal>
+          </Form.Item>
+        </Form>
+      </Drawer>
     </div>
   );
 }
