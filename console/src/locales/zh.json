@@ -120,7 +120,14 @@
     "defaultNotDisablable": "默认智能体不允许禁用",
     "currentAgentDisabled": "当前智能体已被禁用，已自动切换到默认智能体",
     "switchedToDefault": "已自动切换到默认智能体",
-    "cannotSwitchToDisabled": "该智能体已被禁用，请先在管理页面启用"
+    "cannotSwitchToDisabled": "该智能体已被禁用，请先在管理页面启用",
+    "initialSkills": "初始技能",
+    "initialSkillsHelp": "从技能池选择要添加的技能。之后可以随时添加或移除。",
+    "selectAll": "全选",
+    "selectBuiltin": "内置",
+    "selectNone": "清空",
+    "noPoolSkills": "技能池中暂无可用技能",
+    "addSkillsToAgent": "添加技能"
   },
   "skills": {
     "title": "技能",

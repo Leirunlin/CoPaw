@@ -53,6 +53,7 @@ class CreateAgentRequest(BaseModel):
     description: str = ""
     workspace_dir: str | None = None
     language: str = "en"
+    skill_names: list[str] | None = None
 
 
 class MdFileInfo(BaseModel):
@@ -243,7 +244,13 @@ async def create_agent(
     )
 
     # Initialize workspace with default files
-    _initialize_agent_workspace(workspace_dir, agent_config)
+    _initialize_agent_workspace(
+        workspace_dir,
+        agent_config,
+        skill_names=(
+            request.skill_names if request.skill_names is not None else []
+        ),
+    )
 
     # Save agent configuration to workspace/agent.json
     agent_ref = AgentProfileRef(

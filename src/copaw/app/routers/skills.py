@@ -26,6 +26,9 @@ from ...agents.skills_manager import (
     SkillPoolService,
     SkillInfo,
     SkillService,
+    _default_pool_manifest,
+    _default_workspace_manifest,
+    _mutate_json,
     fetch_latest_builtin_skills,
     get_pool_skill_manifest_path,
     get_workspace_skill_manifest_path,
@@ -773,8 +776,6 @@ async def update_pool_skill_config(
     skill_name: str,
     body: SkillConfigRequest,
 ) -> dict[str, Any]:
-    from ...agents.skills_manager import _default_pool_manifest, _mutate_json
-
     manifest_path = get_pool_skill_manifest_path()
 
     def _update(payload: dict[str, Any]) -> bool:
@@ -792,8 +793,6 @@ async def update_pool_skill_config(
 
 @router.delete("/pool/{skill_name}/config")
 async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
-    from ...agents.skills_manager import _default_pool_manifest, _mutate_json
-
     manifest_path = get_pool_skill_manifest_path()
 
     def _update(payload: dict[str, Any]) -> bool:
@@ -961,11 +960,6 @@ async def update_skill_config_endpoint(
         entry["config"] = dict(body.config)
         return True
 
-    from ...agents.skills_manager import (
-        _default_workspace_manifest,
-        _mutate_json,
-    )
-
     updated = _mutate_json(
         manifest_path,
         _default_workspace_manifest(),
@@ -990,11 +984,6 @@ async def delete_skill_config_endpoint(
             return False
         entry.pop("config", None)
         return True
-
-    from ...agents.skills_manager import (
-        _default_workspace_manifest,
-        _mutate_json,
-    )
 
     updated = _mutate_json(
         manifest_path,

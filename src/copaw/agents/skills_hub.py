@@ -1053,7 +1053,6 @@ def _github_collect_tree_files(
     return files
 
 
-# pylint: disable-next=too-many-branches,too-many-statements
 def _fetch_bundle_from_skills_sh_url(
     bundle_url: str,
     requested_version: str,
@@ -1062,97 +1061,16 @@ def _fetch_bundle_from_skills_sh_url(
     if spec is None:
         raise ValueError("Invalid skills.sh URL format")
     owner, repo, skill = spec
-    if requested_version.strip():
-        branch_candidates = [requested_version.strip()]
-    else:
-        # Prefer repo default branch (e.g. master).
-        default_branch = _github_get_default_branch(owner, repo)
-        branch_candidates = [default_branch] if default_branch else []
-        for b in ("main", "master"):
-            if b and b not in branch_candidates:
-                branch_candidates.append(b)
-
-    selected_root = ""
-    skill_md_entry: dict[str, Any] | None = None
-    branch = branch_candidates[0]
-    for candidate_branch in branch_candidates:
-        branch = candidate_branch
-        roots = [
-            _join_repo_path("skills", skill),
-            skill,
-            "",
-        ]
-        for root in roots:
-            skill_md_path = _join_repo_path(root, "SKILL.md")
-            try:
-                entry = _github_get_content_entry(
-                    owner,
-                    repo,
-                    skill_md_path,
-                    branch,
-                )
-            except HTTPError as e:
-                if getattr(e, "code", 0) == 404:
-                    continue
-                raise
-            if str(entry.get("type") or "") == "file":
-                selected_root = root
-                skill_md_entry = entry
-                break
-        if skill_md_entry is not None:
-            break
-
-    if skill_md_entry is None:
-        # Fallback: discover skill roots from repo tree and fuzzy-match.
-        skill_norm = _normalize_skill_key(skill)
-        for candidate_branch in branch_candidates:
-            branch = candidate_branch
-            for root in _github_list_skill_md_roots(owner, repo, branch):
-                leaf = root.split("/")[-1] if root else root
-                leaf_norm = _normalize_skill_key(leaf)
-                if not leaf_norm:
-                    continue
-                if (
-                    leaf_norm == skill_norm
-                    or leaf_norm in skill_norm
-                    or skill_norm in leaf_norm
-                    or skill_norm.endswith(f"-{leaf_norm}")
-                ):
-                    selected_root = root
-                    skill_md_path = _join_repo_path(root, "SKILL.md")
-                    try:
-                        entry = _github_get_content_entry(
-                            owner,
-                            repo,
-                            skill_md_path,
-                            branch,
-                        )
-                    except HTTPError:
-                        continue
-                    if str(entry.get("type") or "") == "file":
-                        skill_md_entry = entry
-                        break
-            if skill_md_entry is not None:
-                break
-
-    if skill_md_entry is None:
-        raise ValueError(
-            "Could not find SKILL.md from skills.sh source. "
-            "This skill may not expose SKILL.md in the repository.",
-        )
-
-    files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    files.update(
-        _github_collect_tree_files(
-            owner=owner,
-            repo=repo,
-            ref=branch,
-            root=selected_root,
-        ),
+    default_branch = _github_get_default_branch(owner, repo) or "main"
+    bundle, source_url = _fetch_bundle_from_repo_and_skill_hint(
+        owner=owner,
+        repo=repo,
+        skill_hint=skill,
+        requested_version=requested_version,
+        default_branch=default_branch,
     )
-
-    source_url = f"https://github.com/{owner}/{repo}"
-    return {"name": skill, "files": files}, source_url
+    bundle["name"] = skill
+    return bundle, source_url
 
 
 # pylint: disable-next=too-many-branches,too-many-statements
@@ -1164,13 +1082,15 @@ def _fetch_bundle_from_repo_and_skill_hint(
     requested_version: str,
     default_branch: str = "main",
 ) -> tuple[Any, str]:
-    branch_candidates = (
-        [requested_version.strip()]
-        if requested_version.strip()
-        else ["main", "master"]
-    )
-    if default_branch and default_branch not in branch_candidates:
-        branch_candidates.append(default_branch)
+    if requested_version.strip():
+        branch_candidates = [requested_version.strip()]
+    else:
+        branch_candidates = []
+        if default_branch:
+            branch_candidates.append(default_branch)
+        for b in ("main", "master"):
+            if b not in branch_candidates:
+                branch_candidates.append(b)
     skill = skill_hint.strip()
 
     selected_root = ""

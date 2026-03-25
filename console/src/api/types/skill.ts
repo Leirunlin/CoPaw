@@ -39,15 +39,20 @@ export interface HubSkillSpec {
   source_url?: string;
 }
 
-// Legacy Skill interface for backward compatibility
-export interface Skill {
-  id: string;
-  name: string;
-  description: string;
-  function_name: string;
-  enabled: boolean;
+export interface HubInstallTaskResponse {
+  task_id: string;
+  bundle_url: string;
   version: string;
-  tags: string[];
+  enable: boolean;
+  overwrite: boolean;
+  status: "pending" | "importing" | "completed" | "failed" | "cancelled";
+  error: string | null;
+  result: {
+    installed: boolean;
+    name: string;
+    enabled: boolean;
+    source_url: string;
+  } | null;
   created_at: number;
   updated_at: number;
 }

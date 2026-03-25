@@ -18,7 +18,9 @@ import { api } from "../../../../api";
  * Parse frontmatter from content string.
  * Returns an object with parsed key-value pairs, or null if no valid frontmatter found.
  */
-function parseFrontmatter(content: string): Record<string, string> | null {
+export function parseFrontmatter(
+  content: string,
+): Record<string, string> | null {
   const trimmed = content.trim();
   if (!trimmed.startsWith("---")) return null;
 
