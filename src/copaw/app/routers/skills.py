@@ -544,7 +544,8 @@ async def upload_skill_zip(
     workspace_dir = await _request_workspace_dir(request)
     data = await _read_validated_zip_upload(file)
     try:
-        result = SkillService(workspace_dir).import_from_zip(
+        result = await asyncio.to_thread(
+            SkillService(workspace_dir).import_from_zip,
             data=data,
             overwrite=overwrite,
             enable=enable,
@@ -612,7 +613,8 @@ async def upload_skill_pool_zip(
 ) -> dict[str, Any]:
     data = await _read_validated_zip_upload(file)
     try:
-        return SkillPoolService().import_from_zip(
+        return await asyncio.to_thread(
+            SkillPoolService().import_from_zip,
             data=data,
             overwrite=overwrite,
         )
