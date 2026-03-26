@@ -868,7 +868,7 @@ async def enable_skill(
     request: Request,
     skill_name: str,
 ) -> dict[str, Any]:
-    """Enable one workspace skill after a fresh scan of current file content."""
+    """Enable one workspace skill after a fresh scan."""
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
