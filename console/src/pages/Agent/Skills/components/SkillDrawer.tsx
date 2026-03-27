@@ -381,7 +381,6 @@ export function SkillDrawer({
             <Form.Item name="syncStatus" label={t("skills.poolSync")}>
               <Input disabled />
             </Form.Item>
-
           </>
         )}
       </Form>

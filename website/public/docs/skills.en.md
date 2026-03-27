@@ -119,11 +119,11 @@ will report a conflict and suggest a renamed alternative.
 
 The workspace tracks the relationship via `sync_to_pool`:
 
-| Status     | Meaning                                                        |
-| ---------- | -------------------------------------------------------------- |
-| `synced`   | Workspace copy matches the pool version                        |
-| `not_synced` | No corresponding pool entry (e.g. created locally)           |
-| `conflict` | Both exist but content differs (locally edited after broadcast) |
+| Status       | Meaning                                                         |
+| ------------ | --------------------------------------------------------------- |
+| `synced`     | Workspace copy matches the pool version                         |
+| `not_synced` | No corresponding pool entry (e.g. created locally)              |
+| `conflict`   | Both exist but content differs (locally edited after broadcast) |
 
 ### Upload to pool (workspace → pool)
 

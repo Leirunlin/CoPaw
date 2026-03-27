@@ -330,6 +330,27 @@ def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
     return skill_name in builtin_names
 
 
+def _classify_pool_skill_source(
+    skill_name: str,
+    skill_dir: Path,
+    builtin_names: list[str],
+    builtin_dir: Path,
+) -> tuple[str, bool]:
+    """Classify one pool skill against packaged builtins."""
+    if not _is_builtin_skill(skill_name, builtin_names):
+        return "customized", False
+
+    src_skill_dir = builtin_dir / skill_name
+    if not src_skill_dir.exists():
+        return "customized", False
+
+    pool_signature = _build_signature(skill_dir)
+    builtin_signature = _build_signature(src_skill_dir)
+    if pool_signature == builtin_signature:
+        return "builtin", True
+    return "customized", False
+
+
 def _is_hidden(name: str) -> bool:
     return name in {
         "__pycache__",
@@ -693,11 +714,13 @@ def list_builtin_import_candidates() -> list[dict[str, Any]]:
         source_signature = _build_signature(skill_dir)
         current = pool_skills.get(skill_name) or {}
         current_signature = str(current.get("signature", "") or "")
+        current_source = str(current.get("source", "") or "")
         status = "missing"
         if current:
             status = (
                 "current"
-                if current_signature == source_signature
+                if current_source == "builtin"
+                and current_signature == source_signature
                 else "conflict"
             )
         candidates.append(
@@ -708,7 +731,7 @@ def list_builtin_import_candidates() -> list[dict[str, Any]]:
                 "current_version_text": str(
                     current.get("version_text", "") or "",
                 ),
-                "current_source": str(current.get("source", "") or ""),
+                "current_source": current_source,
                 "status": status,
             },
         )
@@ -749,8 +772,7 @@ def import_builtin_skills(
             ),
         }
         for name in selected_names
-        if str(candidates[name].get("current_source") or "")
-        and candidates[name].get("current_source") != "builtin"
+        if candidates[name].get("status") == "conflict"
     ]
     if conflicts and not overwrite_conflicts:
         return {
@@ -864,18 +886,12 @@ def reconcile_pool_manifest() -> dict[str, Any]:
 
         for skill_name, skill_dir in sorted(discovered.items()):
             existing = skills.get(skill_name, {})
-            is_builtin_name = _is_builtin_skill(skill_name, builtin_names)
-
-            if is_builtin_name:
-                src_skill_dir = builtin_dir / skill_name
-                if src_skill_dir.exists():
-                    source = "builtin"
-                else:
-                    source = "customized"
-            else:
-                source = "customized"
-
-            protected = source == "builtin"
+            source, protected = _classify_pool_skill_source(
+                skill_name,
+                skill_dir,
+                builtin_names,
+                builtin_dir,
+            )
             has_config = "config" in existing
             config = existing.get("config") if has_config else None
             skills[skill_name] = _build_skill_metadata(

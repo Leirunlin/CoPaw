@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Button,
-  Form,
-  Modal,
-  Tooltip,
-  message,
-} from "@agentscope-ai/design";
+import { Button, Form, Modal, Tooltip, message } from "@agentscope-ai/design";
 import {
   CheckOutlined,
   DownloadOutlined,
@@ -170,8 +164,7 @@ function SkillsPage() {
     } else if (result.conflict) {
       const detail = result.conflict;
       const suggested =
-        detail?.suggested_name ||
-        detail?.conflicts?.[0]?.suggested_name;
+        detail?.suggested_name || detail?.conflicts?.[0]?.suggested_name;
       if (suggested) {
         const skillName =
           detail?.skill_name || detail?.conflicts?.[0]?.skill_name || "";
@@ -421,36 +414,36 @@ function SkillsPage() {
           </div>
           <div className={styles.headerActionsRight}>
             <Tooltip title={t("skills.uploadZipHint")}>
-            <Button
-              type="default"
-              className={styles.creationActionButton}
-              onClick={handleUploadClick}
-              icon={<UploadOutlined />}
-              loading={uploading}
-              disabled={uploading}
-            >
-              {t("skills.uploadZip")}
-            </Button>
+              <Button
+                type="default"
+                className={styles.creationActionButton}
+                onClick={handleUploadClick}
+                icon={<UploadOutlined />}
+                loading={uploading}
+                disabled={uploading}
+              >
+                {t("skills.uploadZip")}
+              </Button>
             </Tooltip>
             <Tooltip title={t("skills.importHubHint")}>
-            <Button
-              type="default"
-              className={styles.creationActionButton}
-              onClick={handleImportFromHub}
-              icon={<ImportOutlined />}
-            >
-              {t("skills.importHub")}
-            </Button>
+              <Button
+                type="default"
+                className={styles.creationActionButton}
+                onClick={handleImportFromHub}
+                icon={<ImportOutlined />}
+              >
+                {t("skills.importHub")}
+              </Button>
             </Tooltip>
             <Tooltip title={t("skills.createSkillHint")}>
-            <Button
-              type="default"
-              className={styles.creationActionButton}
-              onClick={handleCreate}
-              icon={<PlusOutlined />}
-            >
-              {t("skills.createSkill")}
-            </Button>
+              <Button
+                type="default"
+                className={styles.creationActionButton}
+                onClick={handleCreate}
+                icon={<PlusOutlined />}
+              >
+                {t("skills.createSkill")}
+              </Button>
             </Tooltip>
           </div>
         </div>
@@ -584,7 +577,9 @@ function SkillsPage() {
         open={poolModal !== null}
         onCancel={closePoolModal}
         onOk={() =>
-          poolModal === "upload" ? handleUploadToPool() : handleDownloadFromPool()
+          poolModal === "upload"
+            ? handleUploadToPool()
+            : handleDownloadFromPool()
         }
         title={
           poolModal === "upload"
@@ -601,7 +596,9 @@ function SkillsPage() {
               <div className={styles.bulkActions}>
                 <Button
                   size="small"
-                  onClick={() => setWorkspaceSkillNames(skills.map((skill) => skill.name))}
+                  onClick={() =>
+                    setWorkspaceSkillNames(skills.map((skill) => skill.name))
+                  }
                 >
                   {t("skills.selectAll")}
                 </Button>
@@ -617,13 +614,15 @@ function SkillsPage() {
                   return (
                     <div
                       key={skill.name}
-                      className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                        selected ? styles.pickerCardSelected : ""
-                      }`}
+                      className={`${styles.pickerCard} ${
+                        styles.compactPickerCard
+                      } ${selected ? styles.pickerCardSelected : ""}`}
                       onClick={() =>
                         setWorkspaceSkillNames(
                           selected
-                            ? workspaceSkillNames.filter((name) => name !== skill.name)
+                            ? workspaceSkillNames.filter(
+                                (name) => name !== skill.name,
+                              )
                             : [...workspaceSkillNames, skill.name],
                         )
                       }
@@ -647,11 +646,15 @@ function SkillsPage() {
             </>
           ) : (
             <>
-              <div className={styles.pickerLabel}>{t("skills.selectPoolItem")}</div>
+              <div className={styles.pickerLabel}>
+                {t("skills.selectPoolItem")}
+              </div>
               <div className={styles.bulkActions}>
                 <Button
                   size="small"
-                  onClick={() => setPoolSkillNames(poolSkills.map((skill) => skill.name))}
+                  onClick={() =>
+                    setPoolSkillNames(poolSkills.map((skill) => skill.name))
+                  }
                 >
                   {t("skills.selectAll")}
                 </Button>
@@ -667,13 +670,15 @@ function SkillsPage() {
                   return (
                     <div
                       key={skill.name}
-                      className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                        selected ? styles.pickerCardSelected : ""
-                      }`}
+                      className={`${styles.pickerCard} ${
+                        styles.compactPickerCard
+                      } ${selected ? styles.pickerCardSelected : ""}`}
                       onClick={() =>
                         setPoolSkillNames(
                           selected
-                            ? poolSkillNames.filter((name) => name !== skill.name)
+                            ? poolSkillNames.filter(
+                                (name) => name !== skill.name,
+                              )
                             : [...poolSkillNames, skill.name],
                         )
                       }

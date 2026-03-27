@@ -136,7 +136,10 @@ export function SkillCard({
   const { t } = useTranslation();
   const displaySource = getSkillDisplaySource(skill.source);
   const isBuiltin = displaySource === "builtin";
-  const syncStatusLabel = getSkillSyncStatusLabel(skill.sync_to_pool?.status, t);
+  const syncStatusLabel = getSkillSyncStatusLabel(
+    skill.sync_to_pool?.status,
+    t,
+  );
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();

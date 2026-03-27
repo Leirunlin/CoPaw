@@ -53,7 +53,9 @@ function SkillPoolPage() {
   const zipInputRef = useRef<HTMLInputElement>(null);
   const [importBuiltinModalOpen, setImportBuiltinModalOpen] = useState(false);
   const [builtinSources, setBuiltinSources] = useState<BuiltinImportSpec[]>([]);
-  const [selectedBuiltinNames, setSelectedBuiltinNames] = useState<string[]>([]);
+  const [selectedBuiltinNames, setSelectedBuiltinNames] = useState<string[]>(
+    [],
+  );
   const [importBuiltinLoading, setImportBuiltinLoading] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importUrl, setImportUrl] = useState("");
@@ -224,25 +226,19 @@ function SkillPoolPage() {
             }
 
             const renameItems = conflicts
-              .map(
-                (c: {
-                  workspace_id?: string;
-                  suggested_name?: string;
-                }) => {
-                  if (!c.workspace_id || !c.suggested_name) {
-                    return null;
-                  }
-                  const workspaceLabel =
-                    workspaces.find((w) => w.agent_id === c.workspace_id)
-                      ?.agent_name ||
-                    c.workspace_id;
-                  return {
-                    key: c.workspace_id,
-                    label: workspaceLabel,
-                    suggested_name: c.suggested_name,
-                  };
-                },
-              )
+              .map((c: { workspace_id?: string; suggested_name?: string }) => {
+                if (!c.workspace_id || !c.suggested_name) {
+                  return null;
+                }
+                const workspaceLabel =
+                  workspaces.find((w) => w.agent_id === c.workspace_id)
+                    ?.agent_name || c.workspace_id;
+                return {
+                  key: c.workspace_id,
+                  label: workspaceLabel,
+                  suggested_name: c.suggested_name,
+                };
+              })
               .filter(
                 (
                   item,
@@ -260,8 +256,7 @@ function SkillPoolPage() {
             const nextRenameMap = await showConflictRenameModal(
               renameItems.map((item) => ({
                 ...item,
-                suggested_name:
-                  renameMap[item.key] || item.suggested_name,
+                suggested_name: renameMap[item.key] || item.suggested_name,
               })),
             );
             if (!nextRenameMap) {
@@ -279,9 +274,7 @@ function SkillPoolPage() {
       await loadData();
     } catch (error) {
       message.error(
-        error instanceof Error
-          ? error.message
-          : t("skillPool.broadcastFailed"),
+        error instanceof Error ? error.message : t("skillPool.broadcastFailed"),
       );
     }
   };
@@ -296,9 +289,7 @@ function SkillPoolPage() {
       });
       const imported = Array.isArray(result.imported) ? result.imported : [];
       const updated = Array.isArray(result.updated) ? result.updated : [];
-      const unchanged = Array.isArray(result.unchanged)
-        ? result.unchanged
-        : [];
+      const unchanged = Array.isArray(result.unchanged) ? result.unchanged : [];
 
       if (!imported.length && !updated.length && unchanged.length) {
         message.info(t("skillPool.importBuiltinNoChanges"));
@@ -317,7 +308,9 @@ function SkillPoolPage() {
       await loadData();
     } catch (error) {
       const detail = parseErrorDetail(error);
-      const conflicts = Array.isArray(detail?.conflicts) ? detail.conflicts : [];
+      const conflicts = Array.isArray(detail?.conflicts)
+        ? detail.conflicts
+        : [];
       if (conflicts.length && !overwriteConflicts) {
         Modal.confirm({
           title: t("skillPool.importBuiltinConflictTitle"),
@@ -486,11 +479,13 @@ function SkillPoolPage() {
           break;
         }
         const newRenames = await showConflictRenameModal(
-          conflicts.map((c: { skill_name?: string; suggested_name?: string }) => ({
-            key: c.skill_name || "",
-            label: c.skill_name || "",
-            suggested_name: c.suggested_name || "",
-          })),
+          conflicts.map(
+            (c: { skill_name?: string; suggested_name?: string }) => ({
+              key: c.skill_name || "",
+              label: c.skill_name || "",
+              suggested_name: c.suggested_name || "",
+            }),
+          ),
         );
         if (!newRenames) break;
         renameMap = { ...renameMap, ...newRenames };
@@ -641,8 +636,7 @@ function SkillPoolPage() {
                   >
                     <span
                       className={
-                        getSkillDisplaySource(skill.source) ===
-                        "builtin"
+                        getSkillDisplaySource(skill.source) === "builtin"
                           ? styles.builtinTag
                           : styles.customizedTag
                       }
@@ -803,13 +797,15 @@ function SkillPoolPage() {
               return (
                 <div
                   key={skill.name}
-                  className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  }`}
+                  className={`${styles.pickerCard} ${
+                    styles.compactPickerCard
+                  } ${selected ? styles.pickerCardSelected : ""}`}
                   onClick={() =>
                     setBroadcastSkillNames(
                       selected
-                        ? broadcastSkillNames.filter((name) => name !== skill.name)
+                        ? broadcastSkillNames.filter(
+                            (name) => name !== skill.name,
+                          )
                         : [...broadcastSkillNames, skill.name],
                     )
                   }
@@ -837,7 +833,9 @@ function SkillPoolPage() {
           <div className={styles.bulkActions}>
             <Button
               size="small"
-              onClick={() => setTargetWorkspaceIds(workspaces.map((ws) => ws.agent_id))}
+              onClick={() =>
+                setTargetWorkspaceIds(workspaces.map((ws) => ws.agent_id))
+              }
             >
               {t("skillPool.allWorkspaces")}
             </Button>
@@ -851,9 +849,9 @@ function SkillPoolPage() {
               return (
                 <div
                   key={workspace.agent_id}
-                  className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  }`}
+                  className={`${styles.pickerCard} ${
+                    styles.compactPickerCard
+                  } ${selected ? styles.pickerCardSelected : ""}`}
                   onClick={() =>
                     setTargetWorkspaceIds(
                       selected
@@ -880,7 +878,6 @@ function SkillPoolPage() {
               );
             })}
           </div>
-
         </div>
       </Modal>
 
@@ -896,7 +893,9 @@ function SkillPoolPage() {
         width={720}
       >
         <div style={{ display: "grid", gap: 12 }}>
-          <div className={styles.pickerLabel}>{t("skillPool.importBuiltinHint")}</div>
+          <div className={styles.pickerLabel}>
+            {t("skillPool.importBuiltinHint")}
+          </div>
           <div className={styles.bulkActions}>
             <Button
               size="small"
@@ -922,7 +921,9 @@ function SkillPoolPage() {
                   onClick={() =>
                     setSelectedBuiltinNames(
                       selected
-                        ? selectedBuiltinNames.filter((name) => name !== item.name)
+                        ? selectedBuiltinNames.filter(
+                            (name) => name !== item.name,
+                          )
                         : [...selectedBuiltinNames, item.name],
                     )
                   }
@@ -941,11 +942,15 @@ function SkillPoolPage() {
                     {item.current_version_text || "-"}
                   </div>
                   <div className={styles.pickerCardMeta}>
-                    {t(`skillPool.importStatus${item.status === "current"
-                      ? "Current"
-                      : item.status === "conflict"
-                      ? "Conflict"
-                      : "Missing"}`)}
+                    {t(
+                      `skillPool.importStatus${
+                        item.status === "current"
+                          ? "Current"
+                          : item.status === "conflict"
+                          ? "Conflict"
+                          : "Missing"
+                      }`,
+                    )}
                   </div>
                 </div>
               );
@@ -977,9 +982,7 @@ function SkillPoolPage() {
         {mode === "edit" && activeSkill && (
           <div className={styles.metaStack} style={{ marginBottom: 16 }}>
             <div className={styles.infoSection}>
-              <div className={styles.infoLabel}>
-                {t("skillPool.status")}
-              </div>
+              <div className={styles.infoLabel}>{t("skillPool.status")}</div>
               <div className={styles.infoBlock}>
                 {getPoolBuiltinStatusLabel(activeSkill.sync_status, t)}
               </div>
@@ -992,9 +995,7 @@ function SkillPoolPage() {
             label={t("skillPool.skillName")}
             rules={[{ required: true, message: t("skills.pleaseInputName") }]}
           >
-            <Input
-              placeholder={t("skillPool.skillNamePlaceholder")}
-            />
+            <Input placeholder={t("skillPool.skillNamePlaceholder")} />
           </Form.Item>
 
           <Form.Item
