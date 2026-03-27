@@ -330,13 +330,24 @@ def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
     return skill_name in builtin_names
 
 
+def _is_pool_builtin_entry(entry: dict[str, Any] | None) -> bool:
+    """Return whether one pool manifest entry represents a builtin slot."""
+    return bool(entry) and str(entry.get("source", "") or "") == "builtin"
+
+
 def _classify_pool_skill_source(
     skill_name: str,
     skill_dir: Path,
+    existing: dict[str, Any],
     builtin_names: list[str],
     builtin_dir: Path,
 ) -> tuple[str, bool]:
-    """Classify one pool skill against packaged builtins."""
+    """Classify one pool skill against packaged builtins.
+
+    Preserve the manifest's builtin/customized intent when the entry
+    already exists. This lets an outdated builtin remain a builtin slot,
+    while same-name customized copies stay customized.
+    """
     if not _is_builtin_skill(skill_name, builtin_names):
         return "customized", False
 
@@ -344,10 +355,15 @@ def _classify_pool_skill_source(
     if not src_skill_dir.exists():
         return "customized", False
 
+    if existing:
+        if _is_pool_builtin_entry(existing):
+            return "builtin", False
+        return "customized", False
+
     pool_signature = _build_signature(skill_dir)
     builtin_signature = _build_signature(src_skill_dir)
     if pool_signature == builtin_signature:
-        return "builtin", True
+        return "builtin", False
     return "customized", False
 
 
@@ -814,7 +830,7 @@ def import_builtin_skills(
                 skill_name,
                 target,
                 source="builtin",
-                protected=True,
+                protected=False,
             )
             if "config" in existing:
                 entry["config"] = existing.get("config")
@@ -889,6 +905,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
             source, protected = _classify_pool_skill_source(
                 skill_name,
                 skill_dir,
+                existing,
                 builtin_names,
                 builtin_dir,
             )
@@ -1163,7 +1180,7 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
     """Compare pool skills against packaged builtins.
 
     Returns a dict keyed by skill name with sync status for each
-    protected builtin pool skill.
+    builtin pool skill.
 
     Status values:
     - ``synced``: pool copy matches the packaged builtin exactly
@@ -1187,9 +1204,7 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
         pool_entry = pool_skills.get(name)
         if pool_entry is None:
             continue
-        if pool_entry.get("source") != "builtin" or not bool(
-            pool_entry.get("protected"),
-        ):
+        if not _is_pool_builtin_entry(pool_entry):
             continue
 
         builtin_sig = _build_signature(skill_dir)
@@ -1217,13 +1232,9 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
 
     manifest = reconcile_pool_manifest()
     existing = manifest.get("skills", {}).get(skill_name)
-    if (
-        existing is None
-        or existing.get("source") != "builtin"
-        or not bool(existing.get("protected"))
-    ):
+    if existing is None or not _is_pool_builtin_entry(existing):
         raise ValueError(
-            f"'{skill_name}' is not a protected builtin pool skill",
+            f"'{skill_name}' is not a builtin pool skill",
         )
 
     builtin_dir = get_builtin_skills_dir()
@@ -1241,7 +1252,7 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
             skill_name,
             target,
             source="builtin",
-            protected=True,
+            protected=False,
         )
         if "config" in existing:
             entry["config"] = existing["config"]
@@ -2104,10 +2115,8 @@ class SkillPoolService:
                 occupied = (
                     existing is not None or (pool_dir / skill_name).exists()
                 )
-                is_protected = bool(
-                    existing and existing.get("protected"),
-                )
-                if occupied and (not overwrite or is_protected):
+                is_builtin_entry = _is_pool_builtin_entry(existing)
+                if occupied and (not overwrite or is_builtin_entry):
                     conflicts.append(
                         _build_import_conflict(
                             skill_name,
@@ -2194,16 +2203,6 @@ class SkillPoolService:
             target_name or skill_name,
         )
         if normalized_target == skill_name:
-            if entry.get("protected"):
-                return {
-                    "success": False,
-                    "reason": "conflict",
-                    "mode": "rename",
-                    "suggested_name": suggest_conflict_name(
-                        skill_name,
-                        pool_names,
-                    ),
-                }
             return {
                 "success": True,
                 "mode": "edit",
@@ -2255,7 +2254,7 @@ class SkillPoolService:
         is_rename = (
             str(edit_target["mode"]) == "rename" and final_name != skill_name
         )
-        keep_original = bool(entry.get("protected")) and is_rename
+        keep_original = _is_pool_builtin_entry(entry) and is_rename
         skill_dir = get_skill_pool_dir() / final_name
         old_skill_dir = get_skill_pool_dir() / skill_name
         old_sig = str(entry.get("signature", ""))
@@ -2334,7 +2333,7 @@ class SkillPoolService:
         manifest = reconcile_pool_manifest()
         existing = manifest.get("skills", {}).get(final_name)
         if existing:
-            if existing.get("protected"):
+            if _is_pool_builtin_entry(existing):
                 return {
                     "success": False,
                     "reason": "conflict",

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Form, Modal, Tooltip, message } from "@agentscope-ai/design";
+import { Button, Form, Tooltip, message } from "@agentscope-ai/design";
 import {
-  CheckOutlined,
   DownloadOutlined,
   ImportOutlined,
   PlusOutlined,
@@ -13,9 +12,9 @@ import {
   SkillCard,
   SkillDrawer,
   type SkillDrawerFormValues,
-  isSupportedSkillUrl,
-  SUPPORTED_SKILL_URL_PREFIXES,
   useConflictRenameModal,
+  ImportHubModal,
+  PoolTransferModal,
 } from "./components";
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
@@ -42,8 +41,6 @@ function SkillsPage() {
   } = useSkills();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importUrl, setImportUrl] = useState("");
-  const [importUrlError, setImportUrlError] = useState("");
   const [editingSkill, setEditingSkill] = useState<SkillSpec | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [form] = Form.useForm<SkillDrawerFormValues>();
@@ -52,8 +49,6 @@ function SkillsPage() {
   const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(
     null,
   );
-  const [poolSkillNames, setPoolSkillNames] = useState<string[]>([]);
-  const [workspaceSkillNames, setWorkspaceSkillNames] = useState<string[]>([]);
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
 
@@ -68,8 +63,6 @@ function SkillsPage() {
 
   const closePoolModal = () => {
     setPoolModal(null);
-    setPoolSkillNames([]);
-    setWorkspaceSkillNames([]);
   };
 
   const handleUploadClick = () => {
@@ -128,37 +121,12 @@ function SkillsPage() {
   };
 
   const closeImportModal = () => {
-    if (importing) {
-      return;
-    }
-    setImportModalOpen(false);
-    setImportUrl("");
-    setImportUrlError("");
-  };
-
-  const handleImportFromHub = () => {
-    setImportModalOpen(true);
-  };
-
-  const handleImportUrlChange = (value: string) => {
-    setImportUrl(value);
-    const trimmed = value.trim();
-    if (trimmed && !isSupportedSkillUrl(trimmed)) {
-      setImportUrlError(t("skills.invalidSkillUrlSource"));
-      return;
-    }
-    setImportUrlError("");
-  };
-
-  const handleConfirmImport = async (targetName?: string) => {
     if (importing) return;
-    const trimmed = importUrl.trim();
-    if (!trimmed) return;
-    if (!isSupportedSkillUrl(trimmed)) {
-      setImportUrlError(t("skills.invalidSkillUrlSource"));
-      return;
-    }
-    const result = await importFromHub(trimmed, targetName);
+    setImportModalOpen(false);
+  };
+
+  const handleConfirmImport = async (url: string, targetName?: string) => {
+    const result = await importFromHub(url, targetName);
     if (result.success) {
       closeImportModal();
     } else if (result.conflict) {
@@ -178,7 +146,7 @@ function SkillsPage() {
         if (renameMap) {
           const newName = Object.values(renameMap)[0];
           if (newName) {
-            await handleConfirmImport(newName);
+            await handleConfirmImport(url, newName);
           }
         }
       }
@@ -291,7 +259,7 @@ function SkillsPage() {
     }
   };
 
-  const handleUploadToPool = async () => {
+  const handleUploadToPool = async (workspaceSkillNames: string[]) => {
     if (workspaceSkillNames.length === 0) return;
     try {
       for (const skillName of workspaceSkillNames) {
@@ -330,7 +298,7 @@ function SkillsPage() {
     }
   };
 
-  const handleDownloadFromPool = async () => {
+  const handleDownloadFromPool = async (poolSkillNames: string[]) => {
     if (poolSkillNames.length === 0) return;
     try {
       for (const skillName of poolSkillNames) {
@@ -429,7 +397,7 @@ function SkillsPage() {
               <Button
                 type="default"
                 className={styles.creationActionButton}
-                onClick={handleImportFromHub}
+                onClick={() => setImportModalOpen(true)}
                 icon={<ImportOutlined />}
               >
                 {t("skills.importHub")}
@@ -449,73 +417,14 @@ function SkillsPage() {
         </div>
       </div>
 
-      <Modal
-        title={t("skills.importHub")}
+      <ImportHubModal
         open={importModalOpen}
+        importing={importing}
         onCancel={closeImportModal}
-        maskClosable={!importing}
-        closable={!importing}
-        keyboard={!importing}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button
-              onClick={importing ? cancelImport : closeImportModal}
-              style={{ marginRight: 8 }}
-            >
-              {t(importing ? "skills.cancelImport" : "common.cancel")}
-            </Button>
-            <Button
-              type="primary"
-              onClick={() => handleConfirmImport()}
-              loading={importing}
-              disabled={importing || !importUrl.trim() || !!importUrlError}
-            >
-              {t("skills.importHub")}
-            </Button>
-          </div>
-        }
-        width={760}
-      >
-        <div className={styles.importHintBlock}>
-          <p className={styles.importHintTitle}>
-            External hub import is separate from the local Skill Pool.
-          </p>
-          <p className={styles.importHintTitle}>
-            {t("skills.supportedSkillUrlSources")}
-          </p>
-          <ul className={styles.importHintList}>
-            {SUPPORTED_SKILL_URL_PREFIXES.map((url) => (
-              <li key={url}>{url}</li>
-            ))}
-          </ul>
-          <p className={styles.importHintTitle}>{t("skills.urlExamples")}</p>
-          <ul className={styles.importHintList}>
-            <li>https://skills.sh/vercel-labs/skills/find-skills</li>
-            <li>https://lobehub.com/zh/skills/openclaw-skills-cli-developer</li>
-            <li>
-              https://market.lobehub.com/api/v1/skills/openclaw-skills-cli-developer/download
-            </li>
-            <li>
-              https://github.com/anthropics/skills/tree/main/skills/skill-creator
-            </li>
-            <li>https://modelscope.cn/skills/@anthropics/skill-creator</li>
-          </ul>
-        </div>
-
-        <input
-          className={styles.importUrlInput}
-          value={importUrl}
-          onChange={(e) => handleImportUrlChange(e.target.value)}
-          placeholder={t("skills.enterSkillUrl")}
-          disabled={importing}
-        />
-        {importUrlError ? (
-          <div className={styles.importUrlError}>{importUrlError}</div>
-        ) : null}
-        {importing ? (
-          <div className={styles.importLoadingText}>{t("common.loading")}</div>
-        ) : null}
-      </Modal>
+        onConfirm={handleConfirmImport}
+        cancelImport={cancelImport}
+        hint="External hub import is separate from the local Skill Pool."
+      />
 
       {loading ? (
         <div className={styles.loading}>
@@ -573,136 +482,14 @@ function SkillsPage() {
         </div>
       )}
 
-      <Modal
-        open={poolModal !== null}
+      <PoolTransferModal
+        mode={poolModal}
+        skills={skills}
+        poolSkills={poolSkills}
         onCancel={closePoolModal}
-        onOk={() =>
-          poolModal === "upload"
-            ? handleUploadToPool()
-            : handleDownloadFromPool()
-        }
-        title={
-          poolModal === "upload"
-            ? t("skills.uploadToPool")
-            : t("skills.downloadFromPool")
-        }
-      >
-        <div style={{ display: "grid", gap: 12 }}>
-          {poolModal === "upload" ? (
-            <>
-              <div className={styles.pickerLabel}>
-                {t("skills.selectWorkspaceSkill")}
-              </div>
-              <div className={styles.bulkActions}>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    setWorkspaceSkillNames(skills.map((skill) => skill.name))
-                  }
-                >
-                  {t("skills.selectAll")}
-                </Button>
-                <Button size="small" onClick={() => setWorkspaceSkillNames([])}>
-                  {t("skills.clearSelection")}
-                </Button>
-              </div>
-              <div
-                className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}
-              >
-                {skills.map((skill) => {
-                  const selected = workspaceSkillNames.includes(skill.name);
-                  return (
-                    <div
-                      key={skill.name}
-                      className={`${styles.pickerCard} ${
-                        styles.compactPickerCard
-                      } ${selected ? styles.pickerCardSelected : ""}`}
-                      onClick={() =>
-                        setWorkspaceSkillNames(
-                          selected
-                            ? workspaceSkillNames.filter(
-                                (name) => name !== skill.name,
-                              )
-                            : [...workspaceSkillNames, skill.name],
-                        )
-                      }
-                    >
-                      {selected && (
-                        <span
-                          className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
-                        >
-                          <CheckOutlined />
-                        </span>
-                      )}
-                      <div
-                        className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
-                      >
-                        {skill.name}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className={styles.pickerLabel}>
-                {t("skills.selectPoolItem")}
-              </div>
-              <div className={styles.bulkActions}>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    setPoolSkillNames(poolSkills.map((skill) => skill.name))
-                  }
-                >
-                  {t("skills.selectAll")}
-                </Button>
-                <Button size="small" onClick={() => setPoolSkillNames([])}>
-                  {t("skills.clearSelection")}
-                </Button>
-              </div>
-              <div
-                className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}
-              >
-                {poolSkills.map((skill) => {
-                  const selected = poolSkillNames.includes(skill.name);
-                  return (
-                    <div
-                      key={skill.name}
-                      className={`${styles.pickerCard} ${
-                        styles.compactPickerCard
-                      } ${selected ? styles.pickerCardSelected : ""}`}
-                      onClick={() =>
-                        setPoolSkillNames(
-                          selected
-                            ? poolSkillNames.filter(
-                                (name) => name !== skill.name,
-                              )
-                            : [...poolSkillNames, skill.name],
-                        )
-                      }
-                    >
-                      {selected && (
-                        <span
-                          className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
-                        >
-                          <CheckOutlined />
-                        </span>
-                      )}
-                      <div
-                        className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
-                      >
-                        {skill.name}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      </Modal>
+        onUpload={handleUploadToPool}
+        onDownload={handleDownloadFromPool}
+      />
 
       {conflictRenameModal}
 

@@ -18,6 +18,50 @@ function getStreamApiUrl(): string {
   return `${base}/api`;
 }
 
+async function _uploadZip(
+  endpoint: string,
+  file: File,
+  options?: {
+    enable?: boolean;
+    overwrite?: boolean;
+    target_name?: string;
+    rename_map?: Record<string, string>;
+  },
+): Promise<Record<string, unknown>> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const params = new URLSearchParams();
+  if (options?.enable !== undefined) {
+    params.set("enable", String(options.enable));
+  }
+  if (options?.overwrite !== undefined) {
+    params.set("overwrite", String(options.overwrite));
+  }
+  if (options?.target_name) {
+    params.set("target_name", options.target_name);
+  }
+  if (options?.rename_map && Object.keys(options.rename_map).length) {
+    params.set("rename_map", JSON.stringify(options.rename_map));
+  }
+  const qs = params.toString();
+  const url = getApiUrl(`${endpoint}${qs ? `?${qs}` : ""}`);
+
+  const headers = buildAuthHeaders();
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return await response.json();
+}
+
 export const skillApi = {
   listSkills: (agentId?: string) => {
     const opts: RequestInit = {};
@@ -335,7 +379,7 @@ export const skillApi = {
     }
   },
 
-  uploadSkill: async (
+  uploadSkill: (
     file: File,
     options?: {
       enable?: boolean;
@@ -343,94 +387,33 @@ export const skillApi = {
       target_name?: string;
       rename_map?: Record<string, string>;
     },
-  ): Promise<{
-    imported: string[];
-    count: number;
-    enabled: boolean;
-    conflicts?: Array<{
-      reason: string;
-      skill_name: string;
-      suggested_name: string;
-    }>;
-  }> => {
-    const formData = new FormData();
-    formData.append("file", file);
+  ) =>
+    _uploadZip("/skills/upload", file, options) as Promise<{
+      imported: string[];
+      count: number;
+      enabled: boolean;
+      conflicts?: Array<{
+        reason: string;
+        skill_name: string;
+        suggested_name: string;
+      }>;
+    }>,
 
-    const params = new URLSearchParams();
-    if (options?.enable !== undefined) {
-      params.set("enable", String(options.enable));
-    }
-    if (options?.overwrite !== undefined) {
-      params.set("overwrite", String(options.overwrite));
-    }
-    if (options?.target_name) {
-      params.set("target_name", options.target_name);
-    }
-    if (options?.rename_map && Object.keys(options.rename_map).length) {
-      params.set("rename_map", JSON.stringify(options.rename_map));
-    }
-    const qs = params.toString();
-    const url = getApiUrl(`/skills/upload${qs ? `?${qs}` : ""}`);
-
-    const headers = buildAuthHeaders();
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
-    return await response.json();
-  },
-
-  uploadSkillPoolZip: async (
+  uploadSkillPoolZip: (
     file: File,
     options?: {
       overwrite?: boolean;
       target_name?: string;
       rename_map?: Record<string, string>;
     },
-  ): Promise<{
-    imported: string[];
-    count: number;
-    conflicts?: Array<{
-      reason: string;
-      skill_name: string;
-      suggested_name: string;
-    }>;
-  }> => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const params = new URLSearchParams();
-    if (options?.overwrite !== undefined) {
-      params.set("overwrite", String(options.overwrite));
-    }
-    if (options?.target_name) {
-      params.set("target_name", options.target_name);
-    }
-    if (options?.rename_map && Object.keys(options.rename_map).length) {
-      params.set("rename_map", JSON.stringify(options.rename_map));
-    }
-    const qs = params.toString();
-    const url = getApiUrl(`/skills/pool/upload-zip${qs ? `?${qs}` : ""}`);
-
-    const headers = buildAuthHeaders();
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(await response.text());
-    }
-
-    return await response.json();
-  },
+  ) =>
+    _uploadZip("/skills/pool/upload-zip", file, options) as Promise<{
+      imported: string[];
+      count: number;
+      conflicts?: Array<{
+        reason: string;
+        skill_name: string;
+        suggested_name: string;
+      }>;
+    }>,
 };
