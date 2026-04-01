@@ -780,8 +780,6 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
             skill_name=body.source_name or body.name,
             target_name=body.name,
             content=body.content,
-            references=body.references,
-            scripts=body.scripts,
             config=body.config,
         )
     except SkillScanError as exc:
@@ -1276,8 +1274,6 @@ async def save_workspace_skill(
             content=body.content,
             target_name=body.name if body.source_name else None,
             config=body.config,
-            references=body.references,
-            scripts=body.scripts,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)

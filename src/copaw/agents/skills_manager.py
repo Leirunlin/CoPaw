@@ -1561,9 +1561,6 @@ class SkillService:
         content: str,
         target_name: str | None = None,
         config: dict[str, Any] | None = None,
-        references: dict[str, Any] | None = None,
-        scripts: dict[str, Any] | None = None,
-        extra_files: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Edit-in-place or rename-save a workspace skill."""
         final_name = _normalize_skill_dir_name(target_name or skill_name)
@@ -1573,7 +1570,6 @@ class SkillService:
             return {"success": False, "reason": "not_found"}
 
         if final_name == skill_name:
-            old_sig = (old_entry.get("metadata") or {}).get("signature", "")
             new_config = (
                 config if config is not None else old_entry.get("config") or {}
             )
@@ -1581,31 +1577,29 @@ class SkillService:
             skill_root.mkdir(parents=True, exist_ok=True)
             skill_dir = skill_root / skill_name
 
+            old_md = (
+                (skill_dir / "SKILL.md").read_text(
+                    encoding="utf-8",
+                )
+                if (skill_dir / "SKILL.md").exists()
+                else ""
+            )
+            content_changed = content != old_md
+
             with _staged_skill_dir(skill_name) as staged_dir:
-                _write_skill_to_dir(
-                    staged_dir,
+                if skill_dir.exists():
+                    _copy_skill_dir(skill_dir, staged_dir)
+                (staged_dir / "SKILL.md").write_text(
                     content,
-                    references,
-                    scripts,
-                    extra_files,
+                    encoding="utf-8",
                 )
                 _scan_skill_dir_or_raise(staged_dir, skill_name)
-                new_sig = _build_signature(staged_dir)
-                content_changed = new_sig != old_sig
-                if not content_changed and new_config == (
-                    old_entry.get("config") or {}
-                ):
-                    return {
-                        "success": True,
-                        "mode": "noop",
-                        "name": skill_name,
-                    }
                 if content_changed:
                     _copy_skill_dir(staged_dir, skill_dir)
             source = (
-                old_entry.get("source", "customized")
-                if not content_changed
-                else "customized"
+                "customized"
+                if content_changed
+                else old_entry.get("source", "customized")
             )
             metadata = _build_skill_metadata(
                 skill_name,
@@ -1659,12 +1653,10 @@ class SkillService:
             }
 
         with _staged_skill_dir(final_name) as staged_dir:
-            _write_skill_to_dir(
-                staged_dir,
+            _copy_skill_dir(old_dir, staged_dir)
+            (staged_dir / "SKILL.md").write_text(
                 content,
-                references,
-                scripts,
-                extra_files,
+                encoding="utf-8",
             )
             _scan_skill_dir_or_raise(staged_dir, final_name)
             _copy_skill_dir(staged_dir, target_dir)
@@ -1673,15 +1665,10 @@ class SkillService:
             config if config is not None else old_entry.get("config") or {}
         )
         old_channels = old_entry.get("channels") or ["all"]
-        source = (
-            old_entry.get("source", "customized")
-            if final_name == skill_name
-            else "customized"
-        )
         metadata = _build_skill_metadata(
             final_name,
             target_dir,
-            source=source,
+            source="customized",
             protected=False,
         )
 
@@ -2228,9 +2215,6 @@ class SkillPoolService:
         *,
         skill_name: str,
         content: str,
-        references: dict[str, Any] | None = None,
-        scripts: dict[str, Any] | None = None,
-        extra_files: dict[str, Any] | None = None,
         target_name: str | None = None,
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -2254,35 +2238,22 @@ class SkillPoolService:
         keep_original = _is_pool_builtin_entry(entry) and is_rename
         skill_dir = get_skill_pool_dir() / final_name
         old_skill_dir = get_skill_pool_dir() / skill_name
-        old_sig = str(entry.get("signature", ""))
         new_config = (
             config if config is not None else entry.get("config") or {}
         )
 
-        with _staged_skill_dir(final_name) as staged_dir:
-            _write_skill_to_dir(
-                staged_dir,
-                content,
-                references,
-                scripts,
-                extra_files,
+        source_dir = old_skill_dir if is_rename else skill_dir
+        old_md = (
+            (source_dir / "SKILL.md").read_text(
+                encoding="utf-8",
             )
-            _scan_skill_dir_or_raise(staged_dir, final_name)
-            new_sig = _build_signature(staged_dir)
-            content_changed = new_sig != old_sig
+            if (source_dir / "SKILL.md").exists()
+            else ""
+        )
+        content_changed = content != old_md
 
-            if (
-                not is_rename
-                and not content_changed
-                and new_config == (entry.get("config") or {})
-            ):
-                return {
-                    "success": True,
-                    "mode": "noop",
-                    "name": skill_name,
-                }
-
-            if not is_rename and _is_pool_builtin_entry(entry):
+        if not is_rename and _is_pool_builtin_entry(entry):
+            if content_changed:
                 return {
                     "success": False,
                     "reason": "conflict",
@@ -2293,16 +2264,29 @@ class SkillPoolService:
                     ),
                 }
 
+        with _staged_skill_dir(final_name) as staged_dir:
+            if source_dir.exists():
+                _copy_skill_dir(source_dir, staged_dir)
+            (staged_dir / "SKILL.md").write_text(
+                content,
+                encoding="utf-8",
+            )
+            _scan_skill_dir_or_raise(staged_dir, final_name)
             if is_rename or content_changed:
                 _copy_skill_dir(staged_dir, skill_dir)
 
         if is_rename and not keep_original and old_skill_dir.exists():
             shutil.rmtree(old_skill_dir)
 
+        source = (
+            "customized"
+            if content_changed
+            else entry.get("source", "customized")
+        )
         next_entry = _build_skill_metadata(
             final_name,
             skill_dir,
-            source="customized",
+            source=source,
             protected=False,
         )
         next_entry["config"] = new_config
