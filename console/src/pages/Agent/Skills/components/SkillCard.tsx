@@ -155,9 +155,7 @@ export const SkillCard = React.memo(function SkillCard({
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!skill.enabled && onDelete) {
-      onDelete(e);
-    }
+    onDelete?.(e);
   };
 
   const handleSelectClick = (e: React.MouseEvent) => {
@@ -165,9 +163,9 @@ export const SkillCard = React.memo(function SkillCard({
     onSelect?.(e);
   };
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: React.MouseEvent) => {
     if (batchMode && onSelect) {
-      onSelect({} as React.MouseEvent);
+      onSelect(e);
     } else {
       onClick();
     }
@@ -266,7 +264,6 @@ export const SkillCard = React.memo(function SkillCard({
             danger
             className={styles.deleteButton}
             onClick={handleDeleteClick}
-            disabled={skill.enabled}
           >
             {t("common.delete")}
           </Button>

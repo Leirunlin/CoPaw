@@ -1232,7 +1232,9 @@ async def delete_skill(
     skill_name: str,
 ) -> dict[str, Any]:
     workspace_dir = await _request_workspace_dir(request)
-    deleted = SkillService(workspace_dir).delete_skill(skill_name)
+    service = SkillService(workspace_dir)
+    service.disable_skill(skill_name)
+    deleted = service.delete_skill(skill_name)
     if not deleted:
         raise HTTPException(
             status_code=409,

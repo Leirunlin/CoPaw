@@ -959,29 +959,6 @@ function SkillPoolPage() {
                       {t("skillPool.delete")}
                     </Button>
                   </div>
-<<<<<<< HEAD
-                </div>
-                <div className={styles.cardFooter}>
-                  <Button
-                    className={styles.actionButton}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openBroadcast(skill);
-                    }}
-                  >
-                    {t("skillPool.broadcast")}
-                  </Button>
-                  <Button
-                    danger
-                    className={styles.deleteButton}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDelete(skill);
-                    }}
-                  >
-                    {t("skillPool.delete")}
-                  </Button>
-                </div>
                 </Card>
               );
             })}
