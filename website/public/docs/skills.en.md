@@ -392,7 +392,7 @@ preserved. Back up any important custom skill content before upgrading.
 Migration reduces manual work, but you should still manage valuable skills
 carefully and keep your own copies when needed. After verifying the migration
 result, you can manually delete the old directories. **Skills in the old
-`active_skills/` directory are no longer read.**
+`active_skills/` and `customized_skills/` directories are no longer read.**
 
 | Before               | After                                                                    |
 | -------------------- | ------------------------------------------------------------------------ |
