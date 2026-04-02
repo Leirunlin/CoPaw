@@ -108,6 +108,9 @@
     "namePlaceholder": "例如：我的智能体",
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
     "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录",
+    "dragHandleTooltip": "拖拽调整智能体顺序",
+    "reorderSuccess": "智能体顺序已保存",
+    "reorderFailed": "保存智能体顺序失败",
     "defaultNotEditable": "默认智能体不允许编辑",
     "defaultNotDeletable": "默认智能体不允许删除",
     "disable": "禁用",
@@ -193,6 +196,9 @@
     "channels": "适用频道",
     "allChannels": "所有",
     "lastUpdated": "更新时间",
+    "searchPlaceholder": "按名称筛选",
+    "listView": "列表视图",
+    "gridView": "卡片视图",
     "refreshHint": "从磁盘刷新技能",
     "poolSync": "同步状态",
     "uploadedToPool": "已上传至技能池",
@@ -220,7 +226,20 @@
     "emptyStateTitle": "这个智能体还没有可用技能",
     "emptyStateText": "这是正常状态。新建的工作区不会自动带上技能。你可以先从技能池下载已有技能，或者直接创建一个新技能，再把这个智能体装备起来。",
     "emptyStateDownload": "从技能池载入",
-    "emptyStateCreate": "创建第一个技能"
+    "emptyStateCreate": "创建第一个技能",
+    "loadFailed": "加载技能失败",
+    "refreshFailed": "刷新技能失败",
+    "createdSuccessfully": "创建成功",
+    "saveFailed": "保存失败",
+    "importFailed": "导入失败",
+    "disabledSuccessfully": "已禁用",
+    "enabledSuccessfully": "已启用",
+    "operationFailed": "操作失败",
+    "provideUrl": "请提供技能库 URL",
+    "validUrl": "请输入以 http:// 或 https:// 开头的有效 URL",
+    "importedSkill": "已导入技能：{{name}}",
+    "batchOperation": "批量操作",
+    "exitBatch": "退出批量"
   },
   "skillPool": {
     "description": "共享本地技能池，包含内置技能和工作区上传。ClawHub 或 LobeHub 等外部导入为独立功能。",
@@ -1036,6 +1055,8 @@
     "chatHistoryTooltip": "聊天历史",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
+    "statusIdle": "空闲",
+    "statusInProgress": "进行中",
     "disclaimer": "懂你所需，伴你左右",
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",
@@ -1047,7 +1068,7 @@
         "description": "清空对话上下文"
       },
       "compact": {
-        "description": "清空对话上下文并生成历史对话摘要"
+        "description": "压缩对话上下文并生成摘要，支持附带说明"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"

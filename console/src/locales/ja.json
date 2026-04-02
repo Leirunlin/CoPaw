@@ -82,6 +82,9 @@
     "namePlaceholder": "例：マイエージェント",
     "descriptionPlaceholder": "このエージェントの目的を簡単に説明してください...",
     "workspaceHelp": "空欄のままにすると、~/.copaw/workspaces/<id> に自動生成されます",
+    "dragHandleTooltip": "ドラッグしてエージェントの順序を変更",
+    "reorderSuccess": "エージェントの順序を保存しました",
+    "reorderFailed": "エージェントの順序を保存できませんでした",
     "defaultNotEditable": "デフォルトのエージェントは編集できません",
     "defaultNotDeletable": "デフォルトのエージェントは削除できません",
     "disable": "無効化",
@@ -178,6 +181,9 @@
     "channels": "適用チャンネル",
     "allChannels": "すべて",
     "lastUpdated": "更新日時",
+    "searchPlaceholder": "名前で絞り込み",
+    "listView": "リスト表示",
+    "gridView": "カード表示",
     "refreshHint": "ディスクからスキルを更新",
     "poolSync": "同期状態",
     "uploadedToPool": "スキルプールにアップロードしました",
@@ -200,7 +206,20 @@
     "config": "設定",
     "configPlaceholder": "{\"KEY\": \"value\"}",
     "configInvalidJson": "無効な JSON 形式",
-    "configSaved": "設定を保存しました"
+    "configSaved": "設定を保存しました",
+    "loadFailed": "スキルの読み込みに失敗しました",
+    "refreshFailed": "スキルの更新に失敗しました",
+    "createdSuccessfully": "作成しました",
+    "saveFailed": "保存に失敗しました",
+    "importFailed": "インポートに失敗しました",
+    "disabledSuccessfully": "無効化しました",
+    "enabledSuccessfully": "有効化しました",
+    "operationFailed": "操作に失敗しました",
+    "provideUrl": "ハブスキルのURLを入力してください",
+    "validUrl": "http:// または https:// で始まる有効なURLを入力してください",
+    "importedSkill": "スキルをインポートしました: {{name}}",
+    "batchOperation": "一括操作",
+    "exitBatch": "一括操作を終了"
   },
   "skillPool": {
     "description": "ビルトインスキルとワークスペースアップロード用の共有ローカルスキルプール。ClawHub や LobeHub などの外部インポートは別機能です。",
@@ -999,6 +1018,8 @@
     "chatHistoryTooltip": "チャット履歴",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
+    "statusIdle": "待機",
+    "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
     "greeting": "こんにちは、今日はどんなお手伝いができますか？",
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
@@ -1010,7 +1031,7 @@
         "description": "会話のコンテキストをクリア"
       },
       "compact": {
-        "description": "会話のコンテキストをクリアし、会話履歴の要約を生成"
+        "description": "会話コンテキストを圧縮して要約を生成。追加指示にも対応"
       },
       "approve": {
         "description": "保留中のツール操作を承認して実行を続行"
