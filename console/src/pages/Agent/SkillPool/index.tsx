@@ -8,10 +8,12 @@ import {
   Tooltip,
   Drawer,
   Form,
+  Select,
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   AppstoreOutlined,
+  CalendarFilled,
   CloseOutlined,
   DeleteOutlined,
   ImportOutlined,
@@ -47,6 +49,7 @@ import {
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { ImportBuiltinModal } from "./components/ImportBuiltinModal";
+import { SkillCategoryBadges, SkillTagChips } from "./components/SkillMeta";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -81,6 +84,7 @@ function SkillPoolPage() {
   const poolBatchMode = batchModeEnabled;
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchTags, setSearchTags] = useState<string[]>([]);
 
   const togglePoolSelect = (name: string) => {
     setSelectedPoolSkills((prev) => {
@@ -107,13 +111,48 @@ function SkillPoolPage() {
   const selectAllPool = () =>
     setSelectedPoolSkills(new Set(skills.map((s) => s.name)));
 
-  const filteredSkills = skills.filter(
-    (skill) =>
-      skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (skill.description || "")
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase()),
-  );
+  // Extract all unique categories and tags from skills
+  const allCategories = Array.from(
+    new Set(skills.flatMap((skill) => skill.categories || [])),
+  ).sort();
+  const allTags = Array.from(
+    new Set(skills.flatMap((skill) => skill.tags || [])),
+  ).sort();
+
+  // Parse search tags to separate categories and tags
+  const selectedCategories = searchTags
+    .filter((tag) => tag.startsWith("📂:"))
+    .map((tag) => tag.replace(/^📂:/, ""));
+  const selectedTags = searchTags
+    .filter((tag) => tag.startsWith("🏷️:"))
+    .map((tag) => tag.replace(/^🏷️:/, ""));
+
+  // Debug: log parsed values
+  if (process.env.NODE_ENV === "development") {
+    if (selectedCategories.length > 0 || selectedTags.length > 0) {
+      console.log("Selected categories:", selectedCategories);
+      console.log("Selected tags:", selectedTags);
+    }
+  }
+
+  const filteredSkills = skills.filter((skill) => {
+    const q = searchQuery.toLowerCase();
+
+    // Text search filter
+    const matchesText = !q ||
+      skill.name.toLowerCase().includes(q) ||
+      (skill.description || "").toLowerCase().includes(q);
+
+    // Category filter
+    const matchesCategory = selectedCategories.length === 0 ||
+      selectedCategories.some((cat) => skill.categories?.includes(cat));
+
+    // Tag filter
+    const matchesTag = selectedTags.length === 0 ||
+      selectedTags.some((tag) => skill.tags?.includes(tag));
+
+    return matchesText && matchesCategory && matchesTag;
+  });
 
   // Form state for create/edit drawer
   const [form] = Form.useForm();
@@ -880,14 +919,70 @@ function SkillPoolPage() {
         {/* Toolbar */}
         {!loading && skills.length > 0 && (
           <div className={styles.toolbar}>
-            <Input
-              className={styles.searchInput}
-              placeholder={t("skills.searchPlaceholder")}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              allowClear
-              prefix={<SearchOutlined />}
-            />
+            <div className={styles.searchContainer}>
+              <Select
+                mode="tags"
+                className={styles.searchSelect}
+                placeholder={t("skills.searchPlaceholder")}
+                value={searchTags}
+                onChange={setSearchTags}
+                searchValue={searchQuery}
+                onSearch={setSearchQuery}
+                allowClear
+                maxTagCount="responsive"
+                suffixIcon={<SearchOutlined />}
+                dropdownRender={(menu) => (
+                  <div>
+                    {allCategories.length > 0 && (
+                      <div className={styles.filterGroup}>
+                        <div className={styles.filterGroupTitle}>
+                          📂 {t("skillPool.categories")}
+                        </div>
+                        <div className={styles.filterOptions}>
+                          {allCategories.map((cat) => (
+                            <div
+                              key={cat}
+                              className={styles.filterOption}
+                              onClick={() => {
+                                const tag = `📂:${cat}`;
+                                if (!searchTags.includes(tag)) {
+                                  setSearchTags([...searchTags, tag]);
+                                }
+                              }}
+                            >
+                              {cat}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {allTags.length > 0 && (
+                      <div className={styles.filterGroup}>
+                        <div className={styles.filterGroupTitle}>
+                          🏷️ {t("skillPool.tags")}
+                        </div>
+                        <div className={styles.filterOptions}>
+                          {allTags.map((tag) => (
+                            <div
+                              key={tag}
+                              className={styles.filterOption}
+                              onClick={() => {
+                                const tagValue = `🏷️:${tag}`;
+                                if (!searchTags.includes(tagValue)) {
+                                  setSearchTags([...searchTags, tagValue]);
+                                }
+                              }}
+                            >
+                              {tag}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              />
+            </div>
             <div className={styles.toolbarRight}>
               <div className={styles.viewToggle}>
                 <button
@@ -941,7 +1036,7 @@ function SkillPoolPage() {
                       <div className={styles.leftSection}>
                         <div className={styles.fileIconWrapper}>
                           <span className={styles.fileIcon}>
-                            {getSkillVisual(skill.name, skill.content)}
+                            {getSkillVisual(skill.name, skill.emoji)}
                           </span>
                           {poolBatchMode && (
                             <Checkbox
@@ -954,18 +1049,11 @@ function SkillPoolPage() {
                           )}
                         </div>
 
-                        <div className={styles.titleRow}>
-                          <Tooltip title={skill.name}>
-                            <h3 className={styles.skillTitle}>{skill.name}</h3>
-                          </Tooltip>
-                        </div>
-                      </div>
-                      <div className={styles.statusWithSelect}>
-                        <div>
-                          <div className={styles.statusRow}>
-                            <span className={styles.statusLabel}>
-                              {t("skillPool.status")}:
-                            </span>
+                        <div className={styles.titleInfoContainer}>
+                          <div className={styles.titleRow}>
+                            <Tooltip title={skill.name}>
+                              <h3 className={styles.skillTitle}>{skill.name}</h3>
+                            </Tooltip>
                             <span
                               className={`${styles.statusValue} ${
                                 styles[
@@ -977,22 +1065,42 @@ function SkillPoolPage() {
                             </span>
                           </div>
                           {skill.last_updated && (
-                            <div className={styles.statusRow}>
-                              <span className={styles.statusLabel}>
-                                {t("skills.lastUpdated")}:
-                              </span>
-                              <span className={styles.statusValue}>
-                                {dayjs(skill.last_updated).fromNow()}
-                              </span>
+                            <div className={styles.updatedTime}>
+                              <CalendarFilled className={styles.calendarIcon} />
+                              <span>{dayjs(skill.last_updated).fromNow()}</span>
                             </div>
                           )}
                         </div>
                       </div>
                     </div>
                     <div className={styles.descriptionContainer}>
-                      <p className={styles.descriptionLabel}>
-                        {t("skillPool.descriptionLabel")}
-                      </p>
+                      {/* Categories and Tags above Description */}
+                      <div className={styles.categoriesTagsContainer}>
+                        {skill.categories && skill.categories.length > 0 && (
+                          <div className={styles.metaRow}>
+                            <span className={styles.metaIcon}>📂</span>
+                            <div className={styles.metaContent}>
+                              {skill.categories.map((cat) => (
+                                <span key={cat} className={styles.categoryChip}>
+                                  {cat}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {skill.tags && skill.tags.length > 0 && (
+                          <div className={styles.metaRow}>
+                            <span className={styles.metaIcon}>🏷️</span>
+                            <div className={styles.metaContent}>
+                              {skill.tags.map((tag) => (
+                                <span key={tag} className={styles.tagChip}>
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       <p className={styles.descriptionText}>
                         {skill.description || "-"}
                       </p>
@@ -1054,11 +1162,12 @@ function SkillPoolPage() {
                   )}
                   <div className={styles.listItemLeft}>
                     <span className={styles.fileIcon}>
-                      {getSkillVisual(skill.name, skill.content)}
+                      {getSkillVisual(skill.name, skill.emoji)}
                     </span>
                     <div className={styles.listItemInfo}>
                       <div className={styles.listItemHeader}>
                         <span className={styles.skillTitle}>{skill.name}</span>
+                        <SkillCategoryBadges categories={skill.categories} />
                         <span
                           className={`${styles.statusValue} ${
                             styles[getPoolBuiltinStatusTone(skill.sync_status)]
@@ -1076,6 +1185,7 @@ function SkillPoolPage() {
                       <p className={styles.listItemDesc}>
                         {skill.description || "-"}
                       </p>
+                      <SkillTagChips tags={skill.tags} />
                     </div>
                   </div>
                   <div className={styles.listItemRight}>

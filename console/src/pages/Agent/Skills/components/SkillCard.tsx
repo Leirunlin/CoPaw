@@ -1,7 +1,8 @@
 import React from "react";
-import { Card, Button, Checkbox } from "@agentscope-ai/design";
+import { Card, Button, Checkbox, Tooltip } from "@agentscope-ai/design";
 import {
   CalendarFilled,
+  ApiOutlined,
   FileTextFilled,
   FileZipFilled,
   FilePdfFilled,
@@ -30,12 +31,6 @@ interface SkillCardProps {
   onToggleEnabled: (e: React.MouseEvent) => void;
   onDelete?: (e?: React.MouseEvent) => void;
 }
-
-const extractSkillEmoji = (content?: string) => {
-  if (!content) return "";
-  const match = content.match(/"emoji"\s*:\s*"([^"]+)"/);
-  return match?.[1] || "";
-};
 
 const normalizeSkillIconKey = (value: string) =>
   value
@@ -123,8 +118,7 @@ export const getFileIcon = (filePath: string) => {
   }
 };
 
-export const getSkillVisual = (name: string, content?: string) => {
-  const emoji = extractSkillEmoji(content);
+export const getSkillVisual = (name: string, emoji?: string) => {
   if (emoji) {
     return <span className={styles.skillEmoji}>{emoji}</span>;
   }
@@ -182,66 +176,77 @@ export const SkillCard = React.memo(function SkillCard({
         selected ? styles.selectedCard : ""
       }`}
     >
-      {/* Header: Icon + Title + Badge + Status + Select */}
+      {/* Header: Icon + Title + Status */}
       <div className={styles.cardHeader}>
         <div className={styles.leftSection}>
           <span className={styles.fileIcon}>
-            {getSkillVisual(skill.name, skill.content)}
+            {getSkillVisual(skill.name, skill.emoji)}
           </span>
-          <div className={styles.titleRow}>
-            <h3 className={styles.skillTitle}>{skill.name}</h3>
-            <span className={styles.typeBadge}>
-              {isBuiltin ? t("skills.builtin") : t("skills.custom")}
-            </span>
-          </div>
-          {/* Meta Info: Channels, Pool Sync - moved here */}
-          <div className={styles.metaContainer}>
-            <div className={styles.metaItem}>
-              <span className={styles.metaLabel}>{t("skills.channels")}</span>
-              <span className={styles.channelValue}>
-                {(skill.channels || ["all"])
-                  .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
-                  .join(", ")}
+          <div className={styles.titleInfoContainer}>
+            <div className={styles.titleRow}>
+              <h3 className={styles.skillTitle}>{skill.name}</h3>
+              <span
+                className={`${styles.statusValue} ${
+                  skill.enabled ? styles.enabled : styles.disabled
+                }`}
+              >
+                {skill.enabled ? t("common.enabled") : t("common.disabled")}
               </span>
             </div>
             {skill.last_updated && (
-              <div className={styles.metaItem}>
-                <span className={styles.metaLabel}>
-                  {t("skills.lastUpdated")}
-                </span>
-                <span className={styles.metaValue}>
-                  {dayjs(skill.last_updated).fromNow()}
-                </span>
+              <div className={styles.updatedTime}>
+                <CalendarFilled className={styles.calendarIcon} />
+                <span>{dayjs(skill.last_updated).fromNow()}</span>
               </div>
             )}
           </div>
         </div>
-        <div className={styles.statusWithSelect}>
-          <div className={styles.statusContainer}>
-            <span
-              className={`${styles.statusDot} ${
-                skill.enabled ? styles.enabled : styles.disabled
-              }`}
-            />
-            <span
-              className={`${styles.statusText} ${
-                skill.enabled ? styles.enabled : styles.disabled
-              }`}
-            >
-              {skill.enabled ? t("common.enabled") : t("common.disabled")}
-            </span>
-          </div>
-          {batchMode && (
-            <Checkbox checked={selected} onClick={handleSelectClick} />
-          )}
-        </div>
+        {batchMode && (
+          <Checkbox checked={selected} onClick={handleSelectClick} />
+        )}
+      </div>
+
+      {/* Channels Section */}
+      <div className={styles.channelsRow}>
+        <Tooltip title={t("skills.channels")}>
+          <ApiOutlined className={styles.channelIcon} />
+        </Tooltip>
+        <span className={styles.channelValue}>
+          {(skill.channels || ["all"])
+            .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+            .join(", ")}
+        </span>
       </div>
 
       {/* Description Section */}
       <div className={styles.descriptionContainer}>
-        <p className={styles.descriptionLabel}>
-          {t("skills.skillDescription")}
-        </p>
+        {/* Categories and Tags above Description */}
+        <div className={styles.categoriesTagsContainer}>
+          {skill.categories && skill.categories.length > 0 && (
+            <div className={styles.metaRow}>
+              <span className={styles.metaIcon}>📂</span>
+              <div className={styles.metaContent}>
+                {skill.categories.map((cat) => (
+                  <span key={cat} className={styles.categoryChip}>
+                    {cat}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {skill.tags && skill.tags.length > 0 && (
+            <div className={styles.metaRow}>
+              <span className={styles.metaIcon}>🏷️</span>
+              <div className={styles.metaContent}>
+                {skill.tags.map((tag) => (
+                  <span key={tag} className={styles.tagChip}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 

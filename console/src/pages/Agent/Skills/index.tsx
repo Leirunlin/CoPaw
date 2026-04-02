@@ -7,6 +7,7 @@ import {
   Tooltip,
   Switch,
   Input,
+  Select,
 } from "@agentscope-ai/design";
 import {
   CloseOutlined,
@@ -81,16 +82,43 @@ function SkillsPage() {
   const batchMode = batchModeEnabled;
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchTags, setSearchTags] = useState<string[]>([]);
+
+  // Extract all unique categories and tags from skills
+  const allCategories = Array.from(
+    new Set(skills.flatMap((skill) => skill.categories || [])),
+  ).sort();
+  const allTags = Array.from(
+    new Set(skills.flatMap((skill) => skill.tags || [])),
+  ).sort();
+
+  // Parse search tags to separate categories and tags
+  const selectedCategories = searchTags
+    .filter((tag) => tag.startsWith("📂:"))
+    .map((tag) => tag.replace(/^📂:/, ""));
+  const selectedTags = searchTags
+    .filter((tag) => tag.startsWith("🏷️:"))
+    .map((tag) => tag.replace(/^🏷️:/, ""));
 
   const filteredSkills = useMemo(() => {
     const query = searchQuery.toLowerCase();
     return skills.filter((skill) => {
-      return (
+      // Text search filter
+      const matchesText = !query ||
         skill.name.toLowerCase().includes(query) ||
-        (skill.description && skill.description.toLowerCase().includes(query))
-      );
+        (skill.description && skill.description.toLowerCase().includes(query));
+
+      // Category filter
+      const matchesCategory = selectedCategories.length === 0 ||
+        selectedCategories.some((cat) => skill.categories?.includes(cat));
+
+      // Tag filter
+      const matchesTag = selectedTags.length === 0 ||
+        selectedTags.some((tag) => skill.tags?.includes(tag));
+
+      return matchesText && matchesCategory && matchesTag;
     });
-  }, [skills, searchQuery]);
+  }, [skills, searchQuery, selectedCategories, selectedTags]);
 
   const toggleSelect = (name: string) => {
     setSelectedSkills((prev) => {
@@ -629,14 +657,70 @@ function SkillsPage() {
 
       {!loading && skills.length > 0 && (
         <div className={styles.toolbar}>
-          <Input
-            className={styles.searchInput}
-            placeholder={t("skills.searchPlaceholder")}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            allowClear
-            prefix={<SearchOutlined />}
-          />
+          <div className={styles.searchContainer}>
+            <Select
+              mode="tags"
+              className={styles.searchSelect}
+              placeholder={t("skills.searchPlaceholder")}
+              value={searchTags}
+              onChange={setSearchTags}
+              searchValue={searchQuery}
+              onSearch={setSearchQuery}
+              allowClear
+              maxTagCount="responsive"
+              suffixIcon={<SearchOutlined />}
+              dropdownRender={(menu) => (
+                <div>
+                  {allCategories.length > 0 && (
+                    <div className={styles.filterGroup}>
+                      <div className={styles.filterGroupTitle}>
+                        📂 {t("skillPool.categories")}
+                      </div>
+                      <div className={styles.filterOptions}>
+                        {allCategories.map((cat) => (
+                          <div
+                            key={cat}
+                            className={styles.filterOption}
+                            onClick={() => {
+                              const tag = `📂:${cat}`;
+                              if (!searchTags.includes(tag)) {
+                                setSearchTags([...searchTags, tag]);
+                              }
+                            }}
+                          >
+                            {cat}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {allTags.length > 0 && (
+                    <div className={styles.filterGroup}>
+                      <div className={styles.filterGroupTitle}>
+                        🏷️ {t("skillPool.tags")}
+                      </div>
+                      <div className={styles.filterOptions}>
+                        {allTags.map((tag) => (
+                          <div
+                            key={tag}
+                            className={styles.filterOption}
+                            onClick={() => {
+                              const tagValue = `🏷️:${tag}`;
+                              if (!searchTags.includes(tagValue)) {
+                                setSearchTags([...searchTags, tagValue]);
+                              }
+                            }}
+                          >
+                            {tag}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            />
+          </div>
           <div className={styles.toolbarRight}>
             <div className={styles.viewToggle}>
               <button
@@ -751,7 +835,7 @@ function SkillsPage() {
                   )}
                   <div className={styles.listItemLeft}>
                     <span className={styles.fileIcon}>
-                      {getSkillVisual(skill.name, skill.content)}
+                      {getSkillVisual(skill.name, skill.emoji)}
                     </span>
                     <div className={styles.listItemInfo}>
                       <div className={styles.listItemHeader}>
