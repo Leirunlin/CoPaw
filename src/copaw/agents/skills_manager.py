@@ -1268,6 +1268,21 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
     )
 
 
+def _extract_emoji_from_metadata(metadata: Any) -> str:
+    """Extract emoji from metadata, preferring copaw namespace over others."""
+    if not isinstance(metadata, dict):
+        return ""
+    copaw = metadata.get("copaw", {})
+    if isinstance(copaw, dict):
+        emoji = str(copaw.get("emoji", "") or "")
+        if emoji:
+            return emoji
+    for ns_val in metadata.values():
+        if isinstance(ns_val, dict) and ns_val.get("emoji"):
+            return str(ns_val["emoji"])
+    return ""
+
+
 def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
     if not skill_dir.is_dir():
         return None
@@ -1296,16 +1311,7 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
 
             # Extract emoji from metadata: prefer metadata.copaw.emoji,
             # fall back to any metadata.<namespace>.emoji
-            metadata = post.get("metadata", {})
-            if isinstance(metadata, dict):
-                copaw = metadata.get("copaw", {})
-                if isinstance(copaw, dict):
-                    emoji = str(copaw.get("emoji", "") or "")
-                if not emoji:
-                    for ns_val in metadata.values():
-                        if isinstance(ns_val, dict) and ns_val.get("emoji"):
-                            emoji = str(ns_val["emoji"])
-                            break
+            emoji = _extract_emoji_from_metadata(post.get("metadata", {}))
         except Exception:
             pass
 
