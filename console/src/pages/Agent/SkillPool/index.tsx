@@ -127,14 +127,6 @@ function SkillPoolPage() {
     .filter((tag) => tag.startsWith("🏷️:"))
     .map((tag) => tag.replace(/^🏷️:/, ""));
 
-  // Debug: log parsed values
-  if (process.env.NODE_ENV === "development") {
-    if (selectedCategories.length > 0 || selectedTags.length > 0) {
-      console.log("Selected categories:", selectedCategories);
-      console.log("Selected tags:", selectedTags);
-    }
-  }
-
   const filteredSkills = skills.filter((skill) => {
     const q = searchQuery.toLowerCase();
 
