@@ -850,7 +850,9 @@ class SkillPoolService:
                 "channels": prior.get("channels") or ["all"],
                 "source": metadata["source"],
                 "installed_from": pool_installed_from,
-                "config": prior["config"] if "config" in prior else pool_config,
+                "config": prior["config"]
+                if "config" in prior
+                else pool_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
                 "updated_at": metadata["updated_at"],
