@@ -1,9 +1,12 @@
+export type WorkspaceFileKind = "md" | "task_html";
+
 export interface MdFileInfo {
   filename: string;
   path: string;
   size: number;
   created_time: string;
   modified_time: string;
+  kind?: WorkspaceFileKind;
 }
 
 export interface MdFileContent {

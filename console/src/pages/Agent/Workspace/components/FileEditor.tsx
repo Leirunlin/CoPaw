@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../../../utils/markdown";
 import { mermaidComponents } from "../../../../components/MermaidCodeBlock";
+import { TaskHtmlViewer } from "../../../../components/TaskHtmlViewer";
 import styles from "../index.module.less";
 
 interface FileEditorProps {
@@ -33,6 +34,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
   const [showMarkdown, setShowMarkdown] = useState(true);
 
   const isMarkdownFile = selectedFile?.filename.endsWith(".md") || false;
+  const isTaskHtmlFile = selectedFile?.kind === "task_html";
   const markdownContent = useMemo(
     () => stripFrontmatter(fileContent || ""),
     [fileContent],
@@ -118,7 +120,13 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                   </div>
                 )}
               </div>
-              {showMarkdown && isMarkdownFile ? (
+              {isTaskHtmlFile ? (
+                <TaskHtmlViewer
+                  path={selectedFile?.path || ""}
+                  height="100%"
+                  compact={false}
+                />
+              ) : showMarkdown && isMarkdownFile ? (
                 <XMarkdown
                   content={markdownContent}
                   className={styles.markdownViewer}

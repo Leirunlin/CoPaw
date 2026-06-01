@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Plan Graph — __TASK_NAME__</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+      "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+    background: #ffffff;
+    color: #1e293b;
+    min-height: 100vh;
+    padding: 1.25rem 1.5rem 2rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #0f172a;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .header .meta {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: 2px;
+  }
+
+  .controls {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    padding: 0.4rem 0.85rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #334155;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: #eff6ff; border-color: #2563eb; color: #1e3a8a; }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary { background: #2563eb; color: white; border-color: #2563eb; }
+  .btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; color: white; }
+  .btn-secondary { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+  .btn-secondary:hover { background: #e2e8f0; color: #1e293b; }
+  .btn-danger { background: #ffffff; color: #dc2626; border-color: #fecaca; }
+  .btn-danger:hover { background: #fef2f2; border-color: #dc2626; }
+
+  .progress-bar {
+    flex: 1;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+    min-width: 140px;
+    max-width: 280px;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, #2563eb, #16a34a);
+    transition: width 240ms ease;
+  }
+  .progress-text {
+    font-size: 0.75rem;
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+    min-width: 56px;
+    text-align: right;
+  }
+
+  .dirty-badge {
+    font-size: 0.72rem;
+    color: #b45309;
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  /* Graph layout */
+  .graph {
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+    align-items: flex-start;
+  }
+
+  .stage {
+    flex: 0 0 320px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+
+  .stage-header {
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .stage-title-wrap { flex: 1; min-width: 0; }
+  .stage-title {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 0.92rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .stage-meta {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stage-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+  .stage-actions .btn {
+    padding: 0.2rem 0.45rem;
+    font-size: 0.72rem;
+  }
+
+  .stage-body {
+    padding: 0.6rem;
+    flex: 1;
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .add-task-btn {
+    width: 100%;
+    padding: 0.5rem;
+    background: transparent;
+    border: 1px dashed #cbd5e1;
+    border-radius: 7px;
+    color: #64748b;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78rem;
+    transition: all 0.15s;
+  }
+  .add-task-btn:hover { border-color: #2563eb; color: #2563eb; background: #eff6ff; }
+
+  .arrow {
+    flex: 0 0 auto;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #cbd5e1;
+    font-size: 1.4rem;
+    padding: 0 0.1rem;
+  }
+
+  /* Task card */
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 0.65rem 0.75rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    position: relative;
+  }
+  .card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+  }
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.4rem;
+    margin-bottom: 0.3rem;
+  }
+  .card-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    color: #0f172a;
+    overflow-wrap: anywhere;
+  }
+
+  .badge {
+    padding: 0.12rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    line-height: 1.4;
+  }
+  .badge-todo        { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+  .badge-in_progress { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+  .badge-done        { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+  .badge-skipped     { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; text-decoration: line-through; }
+  .badge-blocked     { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+  .badge-failed      { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+
+  .card-desc {
+    color: #475569;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin-bottom: 0.35rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .card-section {
+    background: #f8fafc;
+    padding: 0.35rem 0.55rem;
+    border-radius: 5px;
+    font-size: 0.72rem;
+    color: #334155;
+    margin-top: 0.3rem;
+    border-left: 2px solid #cbd5e1;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .card-section.outcome  { border-left-color: #2563eb; }
+  .card-section.criteria { border-left-color: #7c3aed; }
+  .card-section.test     { border-left-color: #16a34a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .card-section .lbl {
+    color: #64748b;
+    font-weight: 600;
+    margin-right: 0.3rem;
+  }
+
+  details.card-notes { margin-top: 0.4rem; }
+  details.card-notes summary {
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: #64748b;
+    list-style: none;
+  }
+  details.card-notes summary::-webkit-details-marker { display: none; }
+  details.card-notes summary::before { content: "▸ "; }
+  details.card-notes[open] summary::before { content: "▾ "; }
+  details.card-notes pre {
+    margin-top: 0.35rem;
+    padding: 0.4rem 0.55rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    font-size: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow: auto;
+    color: #475569;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 0.3rem;
+    margin-top: 0.5rem;
+    justify-content: flex-end;
+  }
+  .card-actions .btn {
+    padding: 0.18rem 0.45rem;
+    font-size: 0.72rem;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+  }
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 1.25rem 1.4rem;
+    width: 100%;
+    max-width: 520px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .modal h3 {
+    margin-bottom: 0.75rem;
+    color: #0f172a;
+    font-size: 1.05rem;
+  }
+  .modal p.modal-hint {
+    color: #64748b;
+    font-size: 0.8rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .form-group { margin-bottom: 0.65rem; }
+  .form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.78rem;
+    color: #334155;
+    font-weight: 500;
+  }
+  .form-group input,
+  .form-group textarea,
+  .form-group select {
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #0f172a;
+    font: inherit;
+    font-size: 0.82rem;
+  }
+  .form-group input:focus,
+  .form-group textarea:focus,
+  .form-group select:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+  }
+  .form-group textarea { min-height: 56px; resize: vertical; }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+
+  @media (max-width: 768px) {
+    body { padding: 0.75rem; }
+    .graph { flex-direction: column; }
+    .stage { flex: none; width: 100%; }
+    .arrow { transform: rotate(90deg); align-self: center; padding: 0.2rem 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>📋 <span id="plan-name">__TASK_NAME__</span></h1>
+    <div class="meta" id="plan-meta"></div>
+  </div>
+  <div class="controls">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="progress-text" id="progress-text">0 / 0</div>
+    <button class="btn btn-secondary" data-action="refresh" id="refresh-btn">↻ Refresh</button>
+    <button class="btn btn-primary" data-action="save" id="save-btn" style="display:none" title="Save to this file (first save will ask which file to overwrite)">💾 Save</button>
+    <span id="dirty-badge" class="dirty-badge" style="display:none" title="Unsaved local changes">● Unsaved</span>
+    <button class="btn btn-primary" data-action="add-stage">+ Add Stage</button>
+  </div>
+</div>
+
+<div class="graph" id="graph"></div>
+
+<!-- Edit / Add task modal -->
+<div class="modal-overlay" id="task-modal">
+  <div class="modal">
+    <h3 id="task-modal-title">Edit Task</h3>
+    <p class="modal-hint" id="task-modal-hint"></p>
+    <form id="task-form" onsubmit="return false">
+      <input type="hidden" id="task-form-mode" value="edit">
+      <input type="hidden" id="task-form-task-id" value="">
+      <input type="hidden" id="task-form-parent-id" value="">
+      <div class="form-group">
+        <label for="task-title">Title</label>
+        <input type="text" id="task-title" required>
+      </div>
+      <div class="form-group">
+        <label for="task-description">Description</label>
+        <textarea id="task-description"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="task-outcome">Expected Outcome</label>
+        <textarea id="task-outcome"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="task-criteria">Acceptance Criteria</label>
+        <textarea id="task-criteria" placeholder="One per line"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="task-test">Verification command (optional shell)</label>
+        <input type="text" id="task-test" placeholder="e.g. pytest tests/test_api.py">
+      </div>
+      <div class="form-group" id="task-state-group">
+        <label for="task-state">State</label>
+        <select id="task-state">
+          <option value="todo">todo</option>
+          <option value="in_progress">in_progress</option>
+          <option value="done">done</option>
+          <option value="skipped">skipped</option>
+          <option value="blocked">blocked</option>
+          <option value="failed">failed</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal-cancel>Cancel</button>
+        <button type="button" class="btn btn-primary" id="task-form-submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <h3 id="confirm-title">Confirm</h3>
+    <p class="modal-hint" id="confirm-message"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" data-modal-cancel>Cancel</button>
+      <button type="button" class="btn btn-danger" id="confirm-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="task-doc">
+__TASK_DOC_JSON__
+</script>
+
+<script>
+  "use strict";
+
+  // Are we mounted in an iframe (CoPaw Workspace pane) or opened standalone?
+  // Standalone (file://, "Open in new tab" pointing at the file directly):
+  //   user actions update local state only; postMessage is best-effort.
+  // Embedded: post to parent and let the React side persist + reload.
+  var IS_EMBEDDED = (function () {
+    try {
+      return window.parent && window.parent !== window;
+    } catch (e) {
+      return false;
+    }
+  })();
+
+  function loadDoc() {
+    var el = document.getElementById("task-doc");
+    if (!el) return { name: "", tasks: [] };
+    try {
+      var raw = (el.textContent || "").trim();
+      var parsed = raw ? JSON.parse(raw) : {};
+      return {
+        name: parsed.name || "",
+        tasks: Array.isArray(parsed.tasks) ? deepClone(parsed.tasks) : [],
+      };
+    } catch (e) {
+      console.error("task-doc JSON parse failed:", e);
+      return { name: "", tasks: [] };
+    }
+  }
+
+  function deepClone(v) {
+    return JSON.parse(JSON.stringify(v));
+  }
+
+  // Single source of truth while the page is alive.
+  var state = loadDoc();
+
+  // Standalone (file://) mode: surface a Save button + dirty indicator
+  // since the browser cannot write back to disk on its own. Embedded
+  // mode hides Save because each mutation already posts to React →
+  // backend persistence.
+  var dirty = false;
+  function setDirty(v) {
+    dirty = v;
+    if (IS_EMBEDDED) return;
+    var badge = document.getElementById("dirty-badge");
+    if (badge) badge.style.display = v ? "" : "none";
+  }
+  function applyStandaloneChromeToggle() {
+    var refresh = document.getElementById("refresh-btn");
+    var save = document.getElementById("save-btn");
+    if (IS_EMBEDDED) {
+      if (save) save.style.display = "none";
+      if (refresh) refresh.style.display = "";
+    } else {
+      if (save) save.style.display = "";
+      if (refresh) refresh.style.display = "none";
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function stateLabel(s) {
+    return s || "todo";
+  }
+
+  var STATE_CYCLE = { todo: "in_progress", in_progress: "done", done: "todo" };
+  function nextState(s) {
+    return STATE_CYCLE[s] || "todo";
+  }
+
+  function post(msg) {
+    try {
+      window.parent.postMessage(msg, "*");
+    } catch (e) {
+      console.error("postMessage failed:", e);
+    }
+  }
+
+  function renderTaskCard(task) {
+    var t = task || {};
+    var stateClass = "badge-" + stateLabel(t.state);
+    var sections = [];
+    if (t.description) {
+      sections.push(
+        '<div class="card-desc">' + escapeHtml(t.description) + "</div>",
+      );
+    }
+    if (t.outcome) {
+      sections.push(
+        '<div class="card-section outcome">' +
+          '<span class="lbl">Outcome:</span>' +
+          escapeHtml(t.outcome) +
+          "</div>",
+      );
+    }
+    if (t.criteria) {
+      sections.push(
+        '<div class="card-section criteria">' +
+          '<span class="lbl">Criteria:</span>' +
+          escapeHtml(t.criteria) +
+          "</div>",
+      );
+    }
+    if (t.test) {
+      sections.push(
+        '<div class="card-section test">' +
+          '<span class="lbl">test:</span>' +
+          escapeHtml(t.test) +
+          "</div>",
+      );
+    }
+    var notesHtml = "";
+    if (t.notes) {
+      notesHtml =
+        '<details class="card-notes">' +
+        "<summary>Notes / Execution Log</summary>" +
+        "<pre>" +
+        escapeHtml(t.notes) +
+        "</pre>" +
+        "</details>";
+    }
+    return (
+      '<div class="card" data-task-id="' +
+      escapeHtml(t.id) +
+      '">' +
+      '<div class="card-head">' +
+      '<div class="card-title">' +
+      escapeHtml(t.title || "(untitled)") +
+      "</div>" +
+      '<span class="badge ' +
+      stateClass +
+      '" data-action="cycle-state" data-task-id="' +
+      escapeHtml(t.id) +
+      '" title="Click to cycle state">' +
+      escapeHtml(stateLabel(t.state)) +
+      "</span>" +
+      "</div>" +
+      sections.join("") +
+      notesHtml +
+      '<div class="card-actions">' +
+      '<button class="btn btn-secondary" data-action="edit-task" data-task-id="' +
+      escapeHtml(t.id) +
+      '">✏️ Edit</button>' +
+      '<button class="btn btn-danger" data-action="delete-task" data-task-id="' +
+      escapeHtml(t.id) +
+      '">✗ Delete</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderStage(stage, subtasks) {
+    var doneCount = 0;
+    subtasks.forEach(function (s) {
+      if (s.state === "done" || s.state === "skipped") doneCount += 1;
+    });
+    var stateClass = "badge-" + stateLabel(stage.state);
+    var headerMeta =
+      "id " +
+      escapeHtml(stage.id) +
+      " · " +
+      doneCount +
+      "/" +
+      subtasks.length;
+    var cards = subtasks.map(renderTaskCard).join("");
+    return (
+      '<div class="stage" data-stage-id="' +
+      escapeHtml(stage.id) +
+      '">' +
+      '<div class="stage-header">' +
+      '<div class="stage-title-wrap">' +
+      '<div class="stage-title">' +
+      escapeHtml(stage.title || "(untitled stage)") +
+      "</div>" +
+      '<div class="stage-meta">' +
+      headerMeta +
+      "</div>" +
+      "</div>" +
+      '<div class="stage-actions">' +
+      '<span class="badge ' +
+      stateClass +
+      '" data-action="cycle-state" data-task-id="' +
+      escapeHtml(stage.id) +
+      '" title="Click to cycle state">' +
+      escapeHtml(stateLabel(stage.state)) +
+      "</span>" +
+      '<button class="btn btn-secondary" data-action="edit-task" data-task-id="' +
+      escapeHtml(stage.id) +
+      '" title="Edit Stage">✏️</button>' +
+      '<button class="btn btn-danger" data-action="delete-task" data-task-id="' +
+      escapeHtml(stage.id) +
+      '" title="Delete Stage">✗</button>' +
+      "</div>" +
+      "</div>" +
+      '<div class="stage-body">' +
+      cards +
+      '<button class="add-task-btn" data-action="add-task" data-parent-id="' +
+      escapeHtml(stage.id) +
+      '">+ Add Task</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function render() {
+    var name = state.name || "Untitled Plan";
+    var nameEl = document.getElementById("plan-name");
+    if (nameEl) nameEl.textContent = name;
+    document.title = "Task Plan Graph — " + name;
+
+    var graph = document.getElementById("graph");
+    if (!graph) return;
+    graph.innerHTML = "";
+
+    var stages = state.tasks.filter(function (t) {
+      return !t.parent_id;
+    });
+    stages.sort(function (a, b) {
+      return idKey(a.id) - idKey(b.id);
+    });
+
+    if (stages.length === 0) {
+      graph.innerHTML =
+        '<div style="color:#94a3b8;padding:1.5rem;font-size:0.85rem;">' +
+        'No stages yet. Click "+ Add Stage" at the top-right to start.' +
+        "</div>";
+      updateProgress();
+      return;
+    }
+
+    stages.forEach(function (stage, idx) {
+      if (idx > 0) {
+        graph.insertAdjacentHTML("beforeend", '<div class="arrow">→</div>');
+      }
+      var subtasks = state.tasks
+        .filter(function (t) {
+          return t.parent_id === stage.id;
+        })
+        .sort(function (a, b) {
+          return idKey(a.id) - idKey(b.id);
+        });
+      graph.insertAdjacentHTML("beforeend", renderStage(stage, subtasks));
+    });
+
+    updateProgress();
+  }
+
+  function idKey(id) {
+    if (!id) return 0;
+    var parts = String(id).replace(/^t-/, "").split(".");
+    return parseInt(parts[0], 10) * 1000 + parseInt(parts[1] || "0", 10);
+  }
+
+  function updateProgress() {
+    // Leaves = tasks with no children — mirrors backend find_next_runnable.
+    var hasChild = {};
+    state.tasks.forEach(function (t) {
+      if (t.parent_id) hasChild[t.parent_id] = true;
+    });
+    var leaves = state.tasks.filter(function (t) {
+      return !hasChild[t.id];
+    });
+    var total = leaves.length;
+    var done = 0;
+    leaves.forEach(function (t) {
+      if (t.state === "done" || t.state === "skipped") done += 1;
+    });
+    var pct = total > 0 ? (done / total) * 100 : 0;
+    var fill = document.getElementById("progress-fill");
+    var text = document.getElementById("progress-text");
+    if (fill) fill.style.width = pct.toFixed(1) + "%";
+    if (text) text.textContent = done + " / " + total;
+  }
+
+  // ---------- Modals ----------
+
+  function findTask(id) {
+    for (var i = 0; i < state.tasks.length; i++) {
+      if (state.tasks[i].id === id) return state.tasks[i];
+    }
+    return null;
+  }
+
+  // ---------- Mutations (local state + optimistic re-render + postMessage) ----------
+
+  function nextAvailableId(parentId) {
+    var prefix = parentId ? parentId + "." : "t-";
+    var used = {};
+    state.tasks.forEach(function (t) {
+      var tid = t.id || "";
+      var suffix;
+      if (parentId) {
+        if (tid.indexOf(prefix) !== 0) return;
+        suffix = tid.slice(prefix.length);
+        if (suffix.indexOf(".") !== -1) return;
+      } else {
+        if (tid.indexOf("t-") !== 0 || tid.indexOf(".") !== -1) return;
+        suffix = tid.slice(2);
+      }
+      var n = parseInt(suffix, 10);
+      if (!isNaN(n)) used[n] = true;
+    });
+    var i = 1;
+    while (used[i]) i++;
+    return prefix + i;
+  }
+
+  function applyStateCycle(taskId) {
+    var task = findTask(taskId);
+    if (!task) return;
+    var ns = nextState(task.state || "todo");
+    task.state = ns;
+    render();
+    setDirty(true);
+    post({ type: "task-state-cycle", taskId: taskId, nextState: ns });
+  }
+
+  function applyEditFull(taskId, fields) {
+    var t = findTask(taskId);
+    if (!t) return;
+    t.title = fields.title;
+    t.description = fields.description;
+    t.outcome = fields.outcome;
+    t.criteria = fields.criteria;
+    t.test = fields.test;
+    t.state = fields.state;
+    render();
+    setDirty(true);
+    post({
+      type: "task-edit-full",
+      payload: {
+        taskId: taskId,
+        title: fields.title,
+        description: fields.description,
+        outcome: fields.outcome,
+        criteria: fields.criteria,
+        test: fields.test,
+        state: fields.state,
+      },
+    });
+  }
+
+  function applyAdd(parentId, fields) {
+    // Reject 3-level nesting locally (mirror backend rule).
+    if (parentId) {
+      var parent = findTask(parentId);
+      if (!parent) return;
+      if (parent.parent_id) {
+        alert("Cannot nest sub-tasks under sub-tasks (2-level limit).");
+        return;
+      }
+    }
+    var newId = nextAvailableId(parentId);
+    state.tasks.push({
+      id: newId,
+      parent_id: parentId,
+      title: fields.title,
+      description: fields.description || "",
+      outcome: fields.outcome || "",
+      criteria: fields.criteria || "",
+      test: fields.test || "",
+      state: "todo",
+      notes: "",
+    });
+    render();
+    setDirty(true);
+    post({
+      type: "task-add",
+      payload: {
+        parentId: parentId,
+        title: fields.title,
+        description: fields.description || "",
+        outcome: fields.outcome || "",
+        criteria: fields.criteria || "",
+        test: fields.test || "",
+      },
+    });
+  }
+
+  function applyDelete(taskId) {
+    state.tasks = state.tasks.filter(function (t) {
+      return t.id !== taskId && t.parent_id !== taskId;
+    });
+    render();
+    setDirty(true);
+    post({ type: "task-delete", taskId: taskId });
+  }
+
+  function applyRefresh() {
+    if (IS_EMBEDDED) {
+      // Parent (React) will re-fetch the file and rebuild srcDoc.
+      post({ type: "task-action", action: "refresh" });
+      return;
+    }
+    // Standalone: warn before resetting unsaved changes.
+    if (dirty && !window.confirm("You have unsaved changes. Discard and reload?")) return;
+    state = loadDoc();
+    setDirty(false);
+    render();
+  }
+
+  // Standalone "Save" — write the current state back to disk.
+  //
+  // Preferred path: File System Access API (Chrome / Edge / Brave).
+  // First click pops the system file picker so the user can point at
+  // the original file (this confirms the overwrite — there's no way
+  // around it, browser security). Subsequent saves in the same tab
+  // re-use the file handle and overwrite silently.
+  //
+  // Fallback path: browser without the API (Safari, Firefox) gets a
+  // plain download — user replaces the original manually.
+  var fileHandle = null;
+  var SAVE_SUGGEST = (state.name || "task-plan").replace(/[\s\\/]+/g, "-") + ".html";
+
+  function buildSavableHtml() {
+    var clone = document.documentElement.cloneNode(true);
+    var script = clone.querySelector('script#task-doc');
+    if (script) {
+      var payload = {
+        name: state.name,
+        version: "2",
+        tasks: state.tasks,
+      };
+      var raw = JSON.stringify(payload, null, 2).replace(/<\//g, "<\\/");
+      script.textContent = "\n" + raw + "\n";
+    }
+    var badge = clone.querySelector("#dirty-badge");
+    if (badge) badge.setAttribute("style", "display:none");
+    return "<!DOCTYPE html>\n" + clone.outerHTML;
+  }
+
+  function downloadHtml(html) {
+    var blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = SAVE_SUGGEST;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+
+  async function applySave() {
+    var html = buildSavableHtml();
+    if (typeof window.showSaveFilePicker === "function") {
+      try {
+        if (!fileHandle) {
+          fileHandle = await window.showSaveFilePicker({
+            suggestedName: SAVE_SUGGEST,
+            types: [
+              {
+                description: "Task plan HTML",
+                accept: { "text/html": [".html"] },
+              },
+            ],
+          });
+        }
+        var writable = await fileHandle.createWritable();
+        await writable.write(html);
+        await writable.close();
+        setDirty(false);
+        return;
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // user cancelled picker
+        console.warn("FS Access write failed, falling back to download:", e);
+        fileHandle = null;
+      }
+    }
+    downloadHtml(html);
+    setDirty(false);
+  }
+
+  function openTaskModal(mode, opts) {
+    // mode = "edit" | "add-stage" | "add-task"
+    var modal = document.getElementById("task-modal");
+    var titleEl = document.getElementById("task-modal-title");
+    var hintEl = document.getElementById("task-modal-hint");
+    var modeInput = document.getElementById("task-form-mode");
+    var taskIdInput = document.getElementById("task-form-task-id");
+    var parentIdInput = document.getElementById("task-form-parent-id");
+    var stateGroup = document.getElementById("task-state-group");
+
+    document.getElementById("task-title").value = "";
+    document.getElementById("task-description").value = "";
+    document.getElementById("task-outcome").value = "";
+    document.getElementById("task-criteria").value = "";
+    document.getElementById("task-test").value = "";
+    document.getElementById("task-state").value = "todo";
+
+    modeInput.value = mode;
+    taskIdInput.value = "";
+    parentIdInput.value = "";
+
+    if (mode === "edit") {
+      var t = findTask(opts.taskId);
+      if (!t) return;
+      titleEl.textContent = "Edit Task";
+      hintEl.textContent = "id: " + t.id;
+      taskIdInput.value = t.id;
+      parentIdInput.value = t.parent_id || "";
+      document.getElementById("task-title").value = t.title || "";
+      document.getElementById("task-description").value = t.description || "";
+      document.getElementById("task-outcome").value = t.outcome || "";
+      document.getElementById("task-criteria").value = t.criteria || "";
+      document.getElementById("task-test").value = t.test || "";
+      document.getElementById("task-state").value = t.state || "todo";
+      stateGroup.style.display = "";
+    } else if (mode === "add-stage") {
+      titleEl.textContent = "Add Stage";
+      hintEl.textContent = "Top-level task (serial execution)";
+      parentIdInput.value = "";
+      stateGroup.style.display = "none";
+    } else if (mode === "add-task") {
+      titleEl.textContent = "Add Task";
+      hintEl.textContent = "In stage " + (opts.parentId || "") + " — add sub-task";
+      parentIdInput.value = opts.parentId || "";
+      stateGroup.style.display = "none";
+    }
+
+    modal.classList.add("active");
+    setTimeout(function () {
+      document.getElementById("task-title").focus();
+    }, 30);
+  }
+
+  function closeAllModals() {
+    var ms = document.querySelectorAll(".modal-overlay");
+    ms.forEach(function (m) {
+      m.classList.remove("active");
+    });
+  }
+
+  function submitTaskModal() {
+    var mode = document.getElementById("task-form-mode").value;
+    var title = document.getElementById("task-title").value.trim();
+    if (!title) {
+      document.getElementById("task-title").focus();
+      return;
+    }
+    var fields = {
+      title: title,
+      description: document.getElementById("task-description").value,
+      outcome: document.getElementById("task-outcome").value,
+      criteria: document.getElementById("task-criteria").value,
+      test: document.getElementById("task-test").value.trim(),
+    };
+    if (mode === "edit") {
+      var taskId = document.getElementById("task-form-task-id").value;
+      fields.state = document.getElementById("task-state").value;
+      applyEditFull(taskId, fields);
+    } else {
+      // add-stage or add-task
+      var parentId = document.getElementById("task-form-parent-id").value;
+      applyAdd(parentId, fields);
+    }
+    closeAllModals();
+  }
+
+  function openConfirm(message, onOk) {
+    var modal = document.getElementById("confirm-modal");
+    document.getElementById("confirm-message").textContent = message;
+    var btn = document.getElementById("confirm-ok");
+    var clone = btn.cloneNode(true);
+    btn.parentNode.replaceChild(clone, btn);
+    clone.addEventListener("click", function () {
+      closeAllModals();
+      onOk();
+    });
+    modal.classList.add("active");
+  }
+
+  // ---------- Click delegation ----------
+
+  document.addEventListener("click", function (ev) {
+    var el = ev.target && ev.target.closest && ev.target.closest("[data-action]");
+    if (el) {
+      var action = el.getAttribute("data-action");
+      var taskId = el.getAttribute("data-task-id") || "";
+      var parentId = el.getAttribute("data-parent-id") || "";
+      if (action === "refresh") {
+        applyRefresh();
+        return;
+      }
+      if (action === "save") {
+        applySave();
+        return;
+      }
+      if (action === "add-stage") {
+        openTaskModal("add-stage", {});
+        return;
+      }
+      if (action === "add-task") {
+        openTaskModal("add-task", { parentId: parentId });
+        return;
+      }
+      if (action === "edit-task") {
+        openTaskModal("edit", { taskId: taskId });
+        return;
+      }
+      if (action === "delete-task") {
+        var task = findTask(taskId);
+        if (!task) return;
+        var msg = task.parent_id
+          ? 'Delete task "' + (task.title || taskId) + '"?'
+          : 'Delete stage "' + (task.title || taskId) + '" and all its sub-tasks?';
+        openConfirm(msg, function () {
+          applyDelete(taskId);
+        });
+        return;
+      }
+      if (action === "cycle-state") {
+        applyStateCycle(taskId);
+        return;
+      }
+    }
+
+    if (ev.target.closest("[data-modal-cancel]")) {
+      closeAllModals();
+      return;
+    }
+
+    // Click on overlay (not the modal box) closes.
+    var overlay = ev.target.matches && ev.target.matches(".modal-overlay")
+      ? ev.target
+      : null;
+    if (overlay) overlay.classList.remove("active");
+  });
+
+  document.getElementById("task-form-submit").addEventListener("click", submitTaskModal);
+  document.getElementById("task-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    submitTaskModal();
+  });
+
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") closeAllModals();
+  });
+
+  // Warn on tab close if there are unsaved standalone changes.
+  window.addEventListener("beforeunload", function (ev) {
+    if (!IS_EMBEDDED && dirty) {
+      ev.preventDefault();
+      ev.returnValue = "";
+    }
+  });
+
+  applyStandaloneChromeToggle();
+  render();
+</script>
+
+</body>
+</html>

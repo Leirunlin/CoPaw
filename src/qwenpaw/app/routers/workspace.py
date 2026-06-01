@@ -41,13 +41,17 @@ router = APIRouter(prefix="/workspace", tags=["workspace"])
 
 
 class MdFileInfo(BaseModel):
-    """Markdown file metadata."""
+    """Workspace-visible file metadata (markdown or task HTML)."""
 
     filename: str = Field(..., description="File name")
     path: str = Field(..., description="File path")
     size: int = Field(..., description="Size in bytes")
     created_time: str = Field(..., description="Created time")
     modified_time: str = Field(..., description="Modified time")
+    kind: str = Field(
+        default="md",
+        description="Artefact kind: 'md' or 'task_html'.",
+    )
 
 
 class MdFileContent(BaseModel):
@@ -109,7 +113,7 @@ async def list_working_files(
         )
         files = [
             MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_working_mds()
+            for file in workspace_manager.list_working_files()
         ]
         return files
     except Exception as exc:

@@ -167,6 +167,15 @@ export const useAgentsData = () => {
     }
 
     setSelectedFile(file);
+
+    // Task HTML artefacts load their content through the TaskHtmlViewer
+    // iframe — the /workspace/files/<name> endpoint only handles .md.
+    if (file.kind && file.kind !== "md") {
+      setFileContent("");
+      setOriginalContent("");
+      return;
+    }
+
     setLoading(true);
     try {
       const data = await workspaceApi.loadFile(file.filename);

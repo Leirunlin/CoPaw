@@ -86,39 +86,53 @@ class AgentMdManager:
                 f" the allowed directory '{base_dir}'",
             ) from None
 
-    def list_working_mds(self) -> list[dict]:
-        """List all markdown files with metadata in the working dir.
-
-        Returns files sorted by modification time descending (newest first).
-
+    def list_working_files(self) -> list[dict]:
+        """List working-dir files visible in the Workspace pane.
         Returns:
-            list[dict]: A list of dictionaries, each containing:
-                - filename: name of the file (with .md extension)
-                - size: file size in bytes
-                - created_time: file creation timestamp
-                - modified_time: file modification timestamp
+            list[dict]: each entry has:
+                - filename: display name (basename for ``.md``,
+                  ``tasks/<name>.html`` for task HTML).
+                - path: workspace-relative path, suitable for both
+                  ``/workspace/files/<x>`` and ``/task_html/*`` calls.
+                - kind: ``"md"`` or ``"task_html"`` — the frontend's
+                  switch lives here, no extension parsing.
+                - size, created_time, modified_time.
         """
-        md_files = list(self.working_dir.glob("*.md"))
-        # Sort by modification time descending (newest first)
-        md_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        candidates: list[tuple[Path, str]] = [
+            (f, "md") for f in self.working_dir.glob("*.md")
+        ]
+        tasks_dir = self.working_dir / "tasks"
+        if tasks_dir.exists():
+            candidates.extend(
+                (f, "task_html") for f in tasks_dir.glob("*.html")
+            )
+
+        # Sort by modification time descending (newest first).
+        candidates.sort(key=lambda x: x[0].stat().st_mtime, reverse=True)
 
         result = []
-        for f in md_files:
-            if f.is_file():
-                stat = f.stat()
-                result.append(
-                    {
-                        "filename": f.name,
-                        "size": stat.st_size,
-                        "path": str(f),
-                        "created_time": datetime.fromtimestamp(
-                            stat.st_ctime,
-                        ).isoformat(),
-                        "modified_time": datetime.fromtimestamp(
-                            stat.st_mtime,
-                        ).isoformat(),
-                    },
-                )
+        for f, kind in candidates:
+            if not f.is_file():
+                continue
+            stat = f.stat()
+            try:
+                rel = f.relative_to(self.working_dir).as_posix()
+            except ValueError:
+                rel = f.name
+            result.append(
+                {
+                    "filename": f.name if kind == "md" else rel,
+                    "path": rel,
+                    "kind": kind,
+                    "size": stat.st_size,
+                    "created_time": datetime.fromtimestamp(
+                        stat.st_ctime,
+                    ).isoformat(),
+                    "modified_time": datetime.fromtimestamp(
+                        stat.st_mtime,
+                    ).isoformat(),
+                },
+            )
         return result
 
     def read_working_md(self, md_name: str) -> str:

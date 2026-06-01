@@ -37,6 +37,9 @@ export const FileItem: React.FC<FileItemProps> = ({
   const { t } = useTranslation();
   const isSelected = selectedFile?.filename === file.filename;
   const isMemoryFile = file.filename === "MEMORY.md";
+  // Task HTML artefacts live alongside .md notes but can't be used as
+  // system-prompt sources — hide the enable Switch + drag handle.
+  const isTaskHtmlFile = file.kind === "task_html";
 
   const {
     attributes,
@@ -47,7 +50,7 @@ export const FileItem: React.FC<FileItemProps> = ({
     isDragging,
   } = useSortable({
     id: file.filename,
-    disabled: !enabled,
+    disabled: !enabled || isTaskHtmlFile,
   });
 
   const style: React.CSSProperties = {
@@ -97,13 +100,15 @@ export const FileItem: React.FC<FileItemProps> = ({
             </div>
           </div>
           <div className={styles.fileItemActions}>
-            <Tooltip title={t("workspace.systemPromptToggleTooltip")}>
-              <Switch
-                size="small"
-                checked={enabled}
-                onClick={handleToggleClick}
-              />
-            </Tooltip>
+            {!isTaskHtmlFile && (
+              <Tooltip title={t("workspace.systemPromptToggleTooltip")}>
+                <Switch
+                  size="small"
+                  checked={enabled}
+                  onClick={handleToggleClick}
+                />
+              </Tooltip>
+            )}
             {isMemoryFile && (
               <span className={styles.expandIcon}>
                 {expandedMemory ? (
