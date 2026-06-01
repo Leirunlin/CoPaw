@@ -27,6 +27,7 @@ from .store import (
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     import_skill_dir,
+    is_ignored_skill_entry,
     mutate_json,
     normalize_skill_dir_name,
     read_json,
@@ -246,7 +247,11 @@ class SkillPoolService:
                 set(
                     manifest.get("skills", {}).keys(),
                 )
-                | {p.name for p in pool_dir.iterdir() if p.is_dir()}
+                | {
+                    p.name
+                    for p in pool_dir.iterdir()
+                    if p.is_dir() and not is_ignored_skill_entry(p.name)
+                }
                 if pool_dir.exists()
                 else set(
                     manifest.get("skills", {}).keys(),
