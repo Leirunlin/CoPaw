@@ -220,6 +220,28 @@ class TaskTracker:
             except ValueError:
                 pass
 
+    async def broadcast(self, run_key: str, sse: str) -> bool:
+        """Inject an out-of-band SSE frame into a live run.
+
+        Appends *sse* to the run buffer (so reconnects replay it) and pushes it
+        to every current subscriber queue — the same idiom the producer uses
+        for in-stream events. Used to deliver generative-UI surface updates
+        (``a2ui_response`` frames) emitted by action handlers or skill scripts
+        outside the agent's own event generator.
+
+        Returns ``True`` if a run was live for *run_key*, ``False`` otherwise
+        (the caller has already persisted canonical state, so a missed live
+        push is reflected on the next snapshot/reconnect).
+        """
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is None or state.task.done():
+                return False
+            state.buffer.append(sse)
+            for q in state.queues:
+                q.put_nowait(sse)
+            return True
+
     async def request_stop(self, run_key: str) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
         logger.debug("[STOP] request_stop called for run_key=%s", run_key)

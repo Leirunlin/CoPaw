@@ -1,6 +1,6 @@
 ---
 name: task-generator
-description: "Use this skill to plan a multi-step task as a structured HTML task graph and step through it. Triggers on 'plan a task', 'make a task list and run it', 'do this task', 'continue the task', 'resume the task', and on any /task-generator [arg] invocation. Creates <workspace>/tasks/<name>.html (horizontal stages of task cards) from a server-side template; the user reviews / edits it in the Workspace pane; once they say 'execute' the agent steps through the file."
+description: "Use this skill to plan a multi-step task as a structured HTML task graph and step through it. Triggers on 'plan a task', 'make a task list and run it', 'do this task', 'continue the task', 'resume the task', and on any /task-generator [arg] invocation. Creates <workspace>/tasks/<name>.html (stages of task cards) rendered natively in the Workspace pane; the user reviews / edits it there; once they say 'execute' the agent steps through the file."
 metadata:
   builtin_skill_version: "1.0"
   qwenpaw:
@@ -17,14 +17,13 @@ metadata:
 Two distinct phases, **one user gate** between them:
 
 * **Phase 1 — Create.** Build a task JSON, call `scripts/materialize.py`.
-  The script merges that JSON into the server template and writes
-  `<workspace>/tasks/<name>.html`. Tell the user where the file is and
-  **yield**.
+  The script writes that JSON into `<workspace>/tasks/<name>.html`. Tell the
+  user where the file is and **yield**.
 * **Phase 2 — Execute.** When the user says "execute" / "go" / "执行" /
   "开始" / "继续", step through the file.
 
-UI shape, buttons, cards are owned by the template — the LLM **emits
-JSON data only**. Don't read any template, don't echo HTML.
+The board is rendered natively in-app from the JSON (genui / A2UI) — the LLM
+**emits JSON data only**. Don't echo HTML.
 
 ## Scripts at a glance
 
@@ -37,12 +36,6 @@ JSON data only**. Don't read any template, don't echo HTML.
 
 All scripts: success goes to stdout, errors `ERROR: ...` to stderr with
 exit 1.
-
-## References
-
-| File | Purpose |
-|------|---------|
-| `references/task_plan_template.html` | UI template (CSS + horizontal card JS + DOM modal). `materialize.py` reads it automatically and substitutes `__TASK_NAME__` / `__TASK_DOC_JSON__`. **The LLM does NOT need to `read_file` it actively, and must NOT echo it into chat or paste it into a prompt** — only open it when the user asks about UI specifics (e.g. button labels, modal structure). |
 
 ## Step 0. Decide the invocation path
 
@@ -160,7 +153,7 @@ stdout JSON shape:
 ```
 
 **Call this at the start of every iteration.** It picks up user edits
-made in the iframe (edits, deletes, adds, badge clicks).
+made on the board (edits, deletes, adds, state clicks).
 
 ### Step 2.2 Pick next task
 
@@ -258,9 +251,9 @@ When `next_runnable === null`:
 
 ## Anti-patterns
 
-* Don't `read_file` any template or echo HTML. **Emit JSON only.**
-* Don't paste the rendered HTML into chat. The user views it in the
-  Workspace pane (iframe) or "Open in new tab".
+* Don't echo HTML. **Emit JSON only.**
+* Don't paste the rendered HTML into chat. The user views the board in the
+  Workspace pane or "Open in new tab".
 * Don't proceed to Phase 2 in the same turn as Phase 1. Always yield
   after materialize. The user gates Phase 2.
 * Don't skip the re-read in Step 2.1. That defeats the "user can edit

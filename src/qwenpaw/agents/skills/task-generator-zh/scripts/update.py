@@ -18,9 +18,11 @@ import sys
 from common import (
     add_workspace_arg,
     die,
+    genui_push,
     rel,
     resolve_task_path,
     resolve_workspace,
+    task_structural_envelopes,
 )
 from qwenpaw.agents.task_html import set_task_field
 
@@ -62,6 +64,7 @@ def main() -> int:
         return die(str(e))
 
     resolved.write_text(new_html, encoding="utf-8")
+    genui_push(task_structural_envelopes(new_html, rel(resolved, ws)))
 
     # Notes can be multi-line — show "notes updated" instead of repr-ing
     # the whole value into the success summary.

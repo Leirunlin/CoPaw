@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../../../utils/markdown";
 import { mermaidComponents } from "../../../../components/MermaidCodeBlock";
-import { TaskHtmlViewer } from "../../../../components/TaskHtmlViewer";
+import { GenUiSurface } from "../../../../genui";
 import styles from "../index.module.less";
 
 interface FileEditorProps {
@@ -121,8 +121,8 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                 )}
               </div>
               {isTaskHtmlFile ? (
-                <TaskHtmlViewer
-                  path={selectedFile?.path || ""}
+                <GenUiSurface
+                  surfaceId={`task:${selectedFile?.path || ""}`}
                   height="100%"
                   compact={false}
                 />

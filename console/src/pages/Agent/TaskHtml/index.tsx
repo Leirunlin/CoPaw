@@ -1,6 +1,6 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
-import { TaskHtmlViewer } from "../../../components/TaskHtmlViewer";
+import { GenUiSurface } from "../../../genui";
 
 const TaskHtmlPage: React.FC = () => {
   const path = new URLSearchParams(useLocation().search).get("path") || "";
@@ -20,7 +20,7 @@ const TaskHtmlPage: React.FC = () => {
         flexDirection: "column",
       }}
     >
-      <TaskHtmlViewer path={path} compact={false} />
+      <GenUiSurface surfaceId={`task:${path}`} compact={false} />
     </div>
   );
 };

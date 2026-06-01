@@ -16,10 +16,10 @@ metadata:
 
 两个明确阶段，**用户只有一个 gate** 在中间：
 
-* **阶段 1 — 创建。** 构造任务 JSON，调用 `scripts/materialize.py`。脚本把 JSON 合并进服务端 HTML 模板，写入 `<workspace>/tasks/<name>.html`，告诉用户位置，**让出回合**。
+* **阶段 1 — 创建。** 构造任务 JSON，调用 `scripts/materialize.py`。脚本把 JSON 写入 `<workspace>/tasks/<name>.html`，告诉用户位置，**让出回合**。
 * **阶段 2 — 执行。** 用户说"执行"/"go"/"execute"/"开始"/"继续" 时，逐步执行任务。
 
-UI 风格、按钮、卡片都由模板决定，LLM **只产 JSON 数据**——不需要 read_file 模板，也不要 echo HTML。
+看板在应用内由 JSON 原生渲染（genui / A2UI），LLM **只产 JSON 数据**——不要 echo HTML。
 
 ## Scripts 一览
 
@@ -31,12 +31,6 @@ UI 风格、按钮、卡片都由模板决定，LLM **只产 JSON 数据**——
 | `scripts/list.py` | JSON：每个任务的 path / name / summary / created / modified（读 manifest，不解析 HTML） |
 
 所有脚本：成功消息在 stdout，错误 `ERROR: ...` 到 stderr 并 exit 1。
-
-## References
-
-| 文件 | 用途 |
-|------|------|
-| `references/task_plan_template.html` | UI 模板（CSS + 横向卡片 JS + DOM modal）。`materialize.py` 自动读取并把 `__TASK_NAME__` / `__TASK_DOC_JSON__` 替换掉。**LLM 不需要主动 read_file 它，也不要 echo 到对话或 prompt 里**；只有当用户问「按钮叫什么」「modal 长啥样」等细节时再去读它定位。 |
 
 ## Step 0. 判断调用路径
 
@@ -120,7 +114,7 @@ stdout JSON 结构：
 }
 ```
 
-**每轮循环开始都要调用。** 它把用户在 iframe 中做的修改（编辑/删除/新增/状态切换）带回来。
+**每轮循环开始都要调用。** 它把用户在看板上做的修改（编辑/删除/新增/状态切换）带回来。
 
 ### Step 2.2 挑选下一个任务
 
@@ -188,8 +182,8 @@ stdout JSON 结构：
 
 ## 反模式
 
-* 不要 read_file 任何模板，也不要 echo HTML。**只产 JSON 数据**。
-* 不要把渲染后的 HTML 贴到 chat。用户在 Workspace 面板（iframe）或"Open in new tab"中查看。
+* 不要 echo HTML。**只产 JSON 数据**。
+* 不要把渲染后的 HTML 贴到 chat。用户在 Workspace 面板或"Open in new tab"中查看看板。
 * **不要**在阶段 1 的同一回合里继续做阶段 2 的事。materialize 后总是让出。阶段 2 由用户触发。
 * 执行 Step 2.1 的重新读取**不要**跳过。跳了就毁了"用户能中途改文件"的设计。
 * 执行过程中**不要**自动加子任务。如果工作量超出预期，在当前任务的 notes 里记一笔，让用户决定。

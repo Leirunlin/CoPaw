@@ -19,6 +19,7 @@ from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
 from ...config.context import (
+    get_current_session_id,
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
@@ -425,6 +426,21 @@ async def execute_shell_command(
         env["PATH"] = python_bin_dir + os.pathsep + existing_path
     else:
         env["PATH"] = python_bin_dir
+
+    # Surface the run identifiers so skill subprocesses (e.g. the task-generator
+    # scripts) can push generative-UI surface updates back onto the live run
+    # stream via /genui/emit. Best-effort: absent values just disable the push.
+    session_id = get_current_session_id()
+    if session_id:
+        env["QWENPAW_SESSION_ID"] = session_id
+    try:
+        from ...app.agent_context import get_current_agent_id
+
+        agent_id = get_current_agent_id()
+        if agent_id:
+            env["QWENPAW_AGENT_ID"] = agent_id
+    except Exception:  # noqa: BLE001 — context optional
+        pass
 
     shell_executable = (
         get_current_shell_command_executable()

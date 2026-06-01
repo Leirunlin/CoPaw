@@ -168,8 +168,8 @@ export const useAgentsData = () => {
 
     setSelectedFile(file);
 
-    // Task HTML artefacts load their content through the TaskHtmlViewer
-    // iframe — the /workspace/files/<name> endpoint only handles .md.
+    // Task HTML artefacts render natively via GenUiSurface (genui) — the
+    // /workspace/files/<name> endpoint only handles .md.
     if (file.kind && file.kind !== "md") {
       setFileContent("");
       setOriginalContent("");

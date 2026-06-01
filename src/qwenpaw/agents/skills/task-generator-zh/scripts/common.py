@@ -19,11 +19,13 @@ from __future__ import annotations
 import argparse
 import html as html_lib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from qwenpaw.agents.task_html import (
+    TASK_DOC_SCRIPT_ID,
     TASK_HTML_DIR,
     rel_to_workspace,
     resolve_task_path,
@@ -34,22 +36,17 @@ __all__ = [
     "TASK_HTML_DIR",
     "add_workspace_arg",
     "die",
+    "genui_push",
     "normalize_task_doc",
     "rel",
-    "render_template",
+    "render_shell",
     "resolve_task_path",
     "resolve_workspace",
     "serialize_task",
+    "task_full_envelopes",
+    "task_structural_envelopes",
     "tasks_dir",
 ]
-
-# UI template — owned by this skill at references/. The REST API does
-# NOT read this; it only mutates the embedded JSON in already-written
-# files. Path: <skill_dir>/references/task_plan_template.html, reached
-# from this file at <skill_dir>/scripts/common.py.
-TEMPLATE_PATH = (
-    Path(__file__).resolve().parent.parent / "references" / "task_plan_template.html"
-)
 
 
 def _detect_workspace() -> Path:
@@ -90,20 +87,20 @@ def rel(p: Path, ws: Path) -> str:
     return rel_to_workspace(ws, p)
 
 
-def render_template(name: str, task_doc: dict) -> str:
-    """Read the template and substitute the two placeholders.
+def render_shell(name: str, task_doc: dict) -> str:
+    """Minimal HTML shell carrying the canonical task-doc JSON.
 
-    JSON lives inside ``<script type="application/json">``; a literal
-    ``</`` would close the host script tag early, so we escape it as
-    ``<\\/`` — still valid JSON, browsers parse identically.
+    The interactive board renders natively in-app from this JSON (genui /
+    A2UI); the file is a portable canonical store, not a self-contained UI.
+    ``</`` is escaped as ``<\\/`` so task text can't close the host script tag.
     """
-    template = TEMPLATE_PATH.read_text(encoding="utf-8")
     escaped_name = html_lib.escape(name, quote=True)
-    doc_json = json.dumps(task_doc, ensure_ascii=False, indent=2)
-    doc_json = doc_json.replace("</", "<\\/")
-    return template.replace("__TASK_NAME__", escaped_name).replace(
-        "__TASK_DOC_JSON__",
-        doc_json,
+    doc_json = json.dumps(task_doc, ensure_ascii=False, indent=2).replace("</", "<\\/")
+    return (
+        '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        f"<title>{escaped_name}</title>\n</head>\n<body>\n"
+        f'<script type="application/json" id="{TASK_DOC_SCRIPT_ID}">\n'
+        f"{doc_json}\n</script>\n</body>\n</html>\n"
     )
 
 
@@ -165,3 +162,54 @@ def serialize_task(task) -> dict:
 def die(msg: str) -> int:
     print(f"ERROR: {msg}", file=sys.stderr)
     return 1
+
+
+# Generative-UI (A2UI) live push. The board also cold-loads from disk, so the
+# push is best-effort: failures (no server / no run key) are swallowed.
+
+
+def task_full_envelopes(html: str, rel_path: str) -> list:
+    """Full surface (createSurface + components + data) from task HTML."""
+    from qwenpaw.agents.task_html.render import render_html, surface_id_for
+
+    return render_html(html, surface_id_for(rel_path))
+
+
+def task_structural_envelopes(html: str, rel_path: str) -> list:
+    """Component refresh + data (no createSurface) — for in-place updates."""
+    from qwenpaw.agents.task_html import parse_task_doc
+    from qwenpaw.agents.task_html.render import structural_update, surface_id_for
+
+    return structural_update(parse_task_doc(html), surface_id_for(rel_path))
+
+
+def genui_push(envelopes: list) -> None:
+    """POST envelopes to the local ``/genui/emit`` endpoint (best-effort)."""
+    run_key = os.environ.get("QWENPAW_SESSION_ID", "")
+    if not run_key or not envelopes:
+        return
+    try:
+        from qwenpaw.config.utils import read_last_api
+
+        last_api = read_last_api()
+        if not last_api:
+            return
+        host, port = last_api
+        import urllib.request
+
+        body = json.dumps(
+            {"runKey": run_key, "envelopes": envelopes},
+        ).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        agent_id = os.environ.get("QWENPAW_AGENT_ID", "")
+        if agent_id:
+            headers["X-Agent-Id"] = agent_id
+        req = urllib.request.Request(
+            f"http://{host}:{port}/api/genui/emit",
+            data=body,
+            headers=headers,
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5).read()  # noqa: S310
+    except Exception:  # noqa: BLE001 — push is best-effort
+        pass

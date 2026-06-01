@@ -1,11 +1,10 @@
 """Task HTML schema: constants, dataclasses, enums.
 
 The canonical task data lives inside a single embedded
-``<script type="application/json" id="task-doc">…</script>`` block in
-the HTML file. The surrounding HTML/CSS/JS is owned by the per-locale
-skill templates at ``agents/skills/task-generator-{en,zh}/references/
-task_plan_template.html`` and is never written by the LLM — the LLM
-only emits the JSON dict; ``materialize.py`` merges it into the template.
+``<script type="application/json" id="task-doc">…</script>`` block in a
+minimal HTML shell. The LLM only emits the JSON dict; ``materialize.py``
+writes it into the shell, and the board renders natively in-app from the
+JSON (see :mod:`.render`).
 
 Hierarchy is capped at TWO levels (top-level "stage" + direct children).
 Top-level tasks execute SERIALLY; same-parent sub-tasks MAY run in

@@ -31,7 +31,7 @@ from .plan import router as plan_router
 from .git import router as git_router
 from .coding_project import router as coding_project_router
 from .access_control import router as access_control_router
-from .task_html import router as task_html_router
+from .genui import router as genui_router
 
 router = APIRouter()
 
@@ -63,7 +63,7 @@ router.include_router(plan_router)
 router.include_router(git_router)
 router.include_router(coding_project_router)
 router.include_router(access_control_router)
-router.include_router(task_html_router)
+router.include_router(genui_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

@@ -1,10 +1,10 @@
 """HTML-as-canonical-state task system.
 
-Backs the ``/task-generator`` built-in skill. The HTML template lives at
-``agents/skills/task-generator-{en,zh}/references/task_plan_template.html``
-(one copy per locale, owned by the skill); this package owns the schema,
-parser, mutations, validators, and path-resolution policy shared between
-the skill CLI scripts and the REST router.
+Backs the ``/task-generator`` built-in skill. A task file is a minimal HTML
+shell holding the canonical task-doc JSON; the board renders natively in-app
+from that JSON via the generative-UI interface (see :mod:`.render`). This
+package owns the schema, parser, mutations, validators, and path-resolution
+policy shared between the skill CLI scripts and the genui action handler.
 """
 from .manifest import (
     MANIFEST_NAME,

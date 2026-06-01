@@ -5,10 +5,10 @@ Usage:
     {"name":"...","version":"2","tasks":[...]}
     EOTASKDOC
 
-Reads ``task_doc`` JSON from stdin only. The template at
-``references/task_plan_template.html`` owns all UI; this script just
-injects ``<task_doc>`` into the embedded ``<script id="task-doc">``
-block and writes the merged HTML to ``<workspace>/tasks/<name>.html``.
+Reads ``task_doc`` JSON from stdin only. Writes a minimal HTML shell
+holding the JSON in the embedded ``<script id="task-doc">`` block to
+``<workspace>/tasks/<name>.html``. The interactive board renders
+natively in-app from that JSON (genui / A2UI).
 
 Prints ``[task-html:<rel>]`` on success (the marker the agent watches
 for) and exits 0; on failure writes ``ERROR: ...`` to stderr, exit 1.
@@ -26,10 +26,12 @@ from datetime import datetime
 from common import (
     add_workspace_arg,
     die,
+    genui_push,
     normalize_task_doc,
     rel,
-    render_template,
+    render_shell,
     resolve_workspace,
+    task_full_envelopes,
     tasks_dir,
 )
 from qwenpaw.agents.task_html import MAX_HTML_BYTES, upsert_entry, validate
@@ -70,10 +72,7 @@ def main() -> int:
     except ValueError as e:
         return die(str(e))
 
-    try:
-        rendered = render_template(doc["name"], doc)
-    except OSError as e:
-        return die(f"template read failed: {e}")
+    rendered = render_shell(doc["name"], doc)
 
     if len(rendered.encode("utf-8")) > MAX_HTML_BYTES:
         return die(f"rendered HTML exceeds {MAX_HTML_BYTES // 1024} KiB")
@@ -136,6 +135,8 @@ def main() -> int:
         print(f"WARNING: manifest write failed: {e}", file=sys.stderr)
 
     rel_path = rel(target, ws)
+    genui_push(task_full_envelopes(rendered, rel_path))
+
     print("OK: task HTML created")
     print(f"[task-html:{rel_path}]")
     print(f"file: {rel_path}")
