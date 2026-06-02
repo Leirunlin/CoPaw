@@ -155,10 +155,7 @@ Edit `$QWENPAW_WORKING_DIR/config.json` and add the top-level `skill_paths` fiel
 
 ```json
 {
-  "skill_paths": [
-    "~/my-skills",
-    "/opt/team/shared-skills"
-  ]
+  "skill_paths": ["~/my-skills", "/opt/team/shared-skills"]
 }
 ```
 

@@ -136,10 +136,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 
 ```json
 {
-  "skill_paths": [
-    "~/my-skills",
-    "/opt/team/shared-skills"
-  ]
+  "skill_paths": ["~/my-skills", "/opt/team/shared-skills"]
 }
 ```
 
