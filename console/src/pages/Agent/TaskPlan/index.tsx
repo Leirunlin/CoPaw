@@ -2,7 +2,7 @@ import React from "react";
 import { useLocation } from "react-router-dom";
 import { GenUiSurface } from "../../../genui";
 
-const TaskHtmlPage: React.FC = () => {
+const TaskPlanPage: React.FC = () => {
   const path = new URLSearchParams(useLocation().search).get("path") || "";
   if (!path) {
     return (
@@ -25,4 +25,4 @@ const TaskHtmlPage: React.FC = () => {
   );
 };
 
-export default TaskHtmlPage;
+export default TaskPlanPage;

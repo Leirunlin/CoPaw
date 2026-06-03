@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Generative-UI (A2UI) HTTP surface.
 
 One uniform action channel + an emit hook for skill subprocesses + cold-load /
@@ -17,6 +18,7 @@ live-stream for renderers:
 ``runKey`` may be a chat id or a session id; it is normalized to the canonical
 ``chat.id`` the ``task_tracker`` keys runs by.
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,19 +69,22 @@ def _derive_task_envelopes(
     workspace: Any,
     surface_id: str,
 ) -> list[dict[str, Any]]:
-    """Build a task surface from its canonical HTML on disk (cold-load fallback
+    """Build a task surface from its canonical JSON on disk (cold-load fallback
     when the surface is not in the in-memory mirror, e.g. after a restart)."""
-    from ...agents.task_html import resolve_task_path
-    from ...agents.task_html.render import SURFACE_PREFIX, render_html
+    from ...agents.task_plan import parse_task_doc, resolve_task_path
+    from ...agents.task_plan.render import SURFACE_PREFIX, task_to_envelopes
 
     if not surface_id.startswith(SURFACE_PREFIX):
         return []
-    rel = surface_id[len(SURFACE_PREFIX):]
+    rel = surface_id[len(SURFACE_PREFIX) :]
     resolved = resolve_task_path(Path(workspace.workspace_dir), rel)
     if resolved is None or not resolved.exists():
         return []
     try:
-        return render_html(resolved.read_text(encoding="utf-8"), surface_id)
+        return task_to_envelopes(
+            parse_task_doc(resolved.read_text(encoding="utf-8")),
+            surface_id,
+        )
     except ValueError:
         return []
 
@@ -89,8 +94,14 @@ def _derive_task_envelopes(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/action", summary="Report a user action on a generative-UI surface")
-async def post_action(request: Request, payload: dict = Body(...)) -> JSONResponse:
+@router.post(
+    "/action",
+    summary="Report a user action on a generative-UI surface",
+)
+async def post_action(
+    request: Request,
+    payload: dict = Body(...),
+) -> JSONResponse:
     workspace = await get_agent_for_request(request)
     try:
         action = ClientAction.from_body(payload)
@@ -103,7 +114,8 @@ async def post_action(request: Request, payload: dict = Body(...)) -> JSONRespon
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     run_key = await _normalize_run_key(
-        workspace, str(payload.get("runKey") or payload.get("chatId") or ""),
+        workspace,
+        str(payload.get("runKey") or payload.get("chatId") or ""),
     )
     errors = await emit(workspace.task_tracker, run_key, envelopes)
     return JSONResponse(
@@ -117,12 +129,21 @@ async def post_action(request: Request, payload: dict = Body(...)) -> JSONRespon
 
 
 @router.post("/emit", summary="Push A2UI envelopes onto a run stream")
-async def post_emit(request: Request, payload: dict = Body(...)) -> JSONResponse:
+async def post_emit(
+    request: Request,
+    payload: dict = Body(...),
+) -> JSONResponse:
     workspace = await get_agent_for_request(request)
     envelopes = payload.get("envelopes")
     if not isinstance(envelopes, list) or not envelopes:
-        raise HTTPException(status_code=400, detail="envelopes (non-empty list) required")
-    run_key = await _normalize_run_key(workspace, str(payload.get("runKey") or ""))
+        raise HTTPException(
+            status_code=400,
+            detail="envelopes (non-empty list) required",
+        )
+    run_key = await _normalize_run_key(
+        workspace,
+        str(payload.get("runKey") or ""),
+    )
     errors = await emit(
         workspace.task_tracker,
         run_key,

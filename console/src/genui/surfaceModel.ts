@@ -66,6 +66,13 @@ export class SurfaceModel {
     return value as T;
   }
 
+  /** Write through a `{path}` binding into the local data model. */
+  setBoundValue(binding: DynamicValue | undefined, value: unknown): void {
+    if (!isPathRef(binding)) return;
+    this.data = pointerUpsert(this.data, binding.path, value);
+    this.bump();
+  }
+
   // --- useSyncExternalStore plumbing ---
   subscribe = (cb: () => void): (() => void) => {
     this.listeners.add(cb);

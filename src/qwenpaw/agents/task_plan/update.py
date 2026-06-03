@@ -1,36 +1,18 @@
-"""Surgical edits to a task HTML document.
+# -*- coding: utf-8 -*-
+"""Surgical edits to a task plan JSON document.
 
-The HTML on disk wraps a single
-``<script type="application/json" id="task-doc">…</script>`` block that
-holds the canonical data. Every mutation deserialises that JSON,
-operates on the flat ``tasks`` list, and writes the JSON back inline —
-the surrounding HTML/CSS/JS are preserved byte-stable.
+Every mutation deserializes the canonical task JSON, edits the flat ``tasks``
+list, validates the resulting domain document, and returns canonical JSON text.
+The A2UI layer only projects this state and sends user edits back here.
 """
+
 from __future__ import annotations
 
 import json
-import re
-from typing import Any, Optional
+from typing import Any
 
-from .parse import _SCRIPT_RE
-from .schema import (
-    TASK_DOC_SCRIPT_ID,
-    TASK_ID_RE,
-    VALID_STATES,
-)
-
-# Fields a leaf task object can carry.
-_TASK_FIELDS = (
-    "id",
-    "parent_id",
-    "title",
-    "state",
-    "description",
-    "outcome",
-    "criteria",
-    "test",
-    "notes",
-)
+from .parse import dump_task_doc
+from .schema import DOC_VERSION, TASK_ID_RE, VALID_STATES
 
 # Fields that may be patched in-place via set_task_field.
 _PATCHABLE_FIELDS = frozenset(
@@ -39,49 +21,31 @@ _PATCHABLE_FIELDS = frozenset(
 
 
 # ---------------------------------------------------------------------------
-# Load / dump the embedded JSON
+# Load / dump canonical JSON
 # ---------------------------------------------------------------------------
 
 
-def _load_doc(html: str) -> dict[str, Any]:
-    m = _SCRIPT_RE.search(html)
-    if m is None:
-        raise ValueError(
-            f'Missing <script id="{TASK_DOC_SCRIPT_ID}"> block.',
-        )
-    body = m.group("body").strip()
+def _load_doc(text: str) -> dict[str, Any]:
+    body = text.strip()
     if not body:
-        return {"name": "", "version": "2", "tasks": []}
+        return {"name": "", "version": DOC_VERSION, "tasks": []}
     try:
         data = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"task-doc JSON malformed: {exc}") from exc
+        raise ValueError(f"task plan JSON malformed: {exc}") from exc
     if not isinstance(data, dict):
-        raise ValueError("task-doc JSON must be an object.")
+        raise ValueError("task plan JSON must be an object.")
+    data.setdefault("version", DOC_VERSION)
     data.setdefault("tasks", [])
     if not isinstance(data["tasks"], list):
-        raise ValueError("task-doc 'tasks' must be a list.")
+        raise ValueError("task plan 'tasks' must be a list.")
     return data
-
-
-def _dump_doc(html: str, doc: dict[str, Any]) -> str:
-    # Escape '</' so user-supplied text can't close the host <script> tag.
-    raw = json.dumps(doc, ensure_ascii=False, indent=2).replace("</", "<\\/")
-    new_body = "\n" + raw + "\n"
-
-    def repl(match: re.Match[str]) -> str:
-        full = match.group(0)
-        body = match.group("body")
-        idx = full.find(body)
-        return full[:idx] + new_body + full[idx + len(body) :]
-
-    return _SCRIPT_RE.sub(repl, html, count=1)
 
 
 def _find_task(
     doc: dict[str, Any],
     task_id: str,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     for t in doc["tasks"]:
         if isinstance(t, dict) and t.get("id") == task_id:
             return t
@@ -94,7 +58,7 @@ def _find_task(
 
 
 def set_task_field(
-    html: str,
+    text: str,
     task_id: str,
     **fields: Any,
 ) -> str:
@@ -112,14 +76,15 @@ def set_task_field(
     state = fields.get("state")
     if state is not None and state not in VALID_STATES:
         raise ValueError(
-            f"Invalid state {state!r}; expected one of {sorted(VALID_STATES)}.",
+            f"Invalid state {state!r}; "
+            f"expected one of {sorted(VALID_STATES)}.",
         )
 
     title = fields.get("title")
     if title is not None and (not isinstance(title, str) or not title.strip()):
         raise ValueError("title must be a non-empty string.")
 
-    doc = _load_doc(html)
+    doc = _load_doc(text)
     task = _find_task(doc, task_id)
     if task is None:
         raise ValueError(f"Task {task_id!r} not found in document.")
@@ -129,31 +94,17 @@ def set_task_field(
             continue
         task[k] = v.strip() if k == "title" and isinstance(v, str) else v
 
-    return _dump_doc(html, doc)
+    errors = validate_doc(doc)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return dump_task_doc(doc)
 
 
-def set_task_state(
-    html: str,
-    task_id: str,
-    new_state: str,
-    notes: Optional[str] = None,
-) -> str:
-    """Patch ``state`` (and optionally ``notes``)."""
-    payload: dict[str, Any] = {"state": new_state}
-    if notes is not None:
-        payload["notes"] = notes
-    return set_task_field(html, task_id, **payload)
-
-
-def set_task_title(html: str, task_id: str, new_title: str) -> str:
-    return set_task_field(html, task_id, title=new_title)
-
-
-def delete_task(html: str, task_id: str) -> str:
+def delete_task(text: str, task_id: str) -> str:
     """Remove a task and all its direct children (2-level: simple filter)."""
     if not TASK_ID_RE.match(task_id):
         raise ValueError(f"Invalid task_id {task_id!r}.")
-    doc = _load_doc(html)
+    doc = _load_doc(text)
     before = len(doc["tasks"])
     doc["tasks"] = [
         t
@@ -165,7 +116,10 @@ def delete_task(html: str, task_id: str) -> str:
     ]
     if len(doc["tasks"]) == before:
         raise ValueError(f"Task {task_id!r} not found in document.")
-    return _dump_doc(html, doc)
+    errors = validate_doc(doc)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return dump_task_doc(doc)
 
 
 def _next_available_id(tasks: list[dict[str, Any]], parent_id: str) -> str:
@@ -181,7 +135,7 @@ def _next_available_id(tasks: list[dict[str, Any]], parent_id: str) -> str:
             # further dot afterwards.
             if not tid.startswith(prefix):
                 continue
-            suffix = tid[len(prefix):]
+            suffix = tid[len(prefix) :]
         else:
             # Top level: id matches "t-N" with no dot.
             if not tid.startswith("t-") or "." in tid:
@@ -198,19 +152,19 @@ def _next_available_id(tasks: list[dict[str, Any]], parent_id: str) -> str:
 
 
 def add_task(
-    html: str,
+    text: str,
     parent_id: str,
     title: str,
     **extra: Any,
 ) -> tuple[str, str]:
-    """Append a new task. Returns ``(new_html, new_task_id)``.
+    """Append a new task. Returns ``(new_text, new_task_id)``.
 
     *parent_id* must reference an existing top-level task (or be empty).
     Sub-tasks of sub-tasks (3-level nesting) are rejected.
     """
     if not isinstance(title, str) or not title.strip():
         raise ValueError("title must be a non-empty string.")
-    doc = _load_doc(html)
+    doc = _load_doc(text)
 
     if parent_id:
         if not TASK_ID_RE.match(parent_id):
@@ -247,7 +201,10 @@ def add_task(
         task[k] = v
 
     doc["tasks"].append(task)
-    return _dump_doc(html, doc), new_id
+    errors = validate_doc(doc)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return dump_task_doc(doc), new_id
 
 
 # ---------------------------------------------------------------------------
@@ -255,15 +212,20 @@ def add_task(
 # ---------------------------------------------------------------------------
 
 
-def validate(html: str) -> list[str]:
-    """Return validation errors (empty list = OK)."""
+def validate_doc(doc: dict[str, Any]) -> list[str]:
+    # pylint: disable=too-many-branches
+    """Return validation errors for an already-loaded doc."""
+    if not isinstance(doc.get("name", ""), str):
+        return ["name must be a string."]
+
     try:
-        doc = _load_doc(html)
-    except ValueError as exc:
-        return [str(exc)]
+        tasks = doc.get("tasks") or []
+    except AttributeError:
+        return ["task plan must be an object."]
 
     errors: list[str] = []
-    tasks = doc.get("tasks") or []
+    if not isinstance(tasks, list):
+        return ["tasks must be a list."]
     seen_ids: set[str] = set()
     top_level_ids: set[str] = set()
 
@@ -317,3 +279,12 @@ def validate(html: str) -> list[str]:
             )
 
     return errors
+
+
+def validate(text: str) -> list[str]:
+    """Return validation errors for task JSON text (empty list = OK)."""
+    try:
+        doc = _load_doc(text)
+    except ValueError as exc:
+        return [str(exc)]
+    return validate_doc(doc)

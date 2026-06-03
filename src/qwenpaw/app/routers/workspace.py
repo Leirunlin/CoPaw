@@ -41,7 +41,7 @@ router = APIRouter(prefix="/workspace", tags=["workspace"])
 
 
 class MdFileInfo(BaseModel):
-    """Workspace-visible file metadata (markdown or task HTML)."""
+    """Workspace-visible file metadata (markdown or task plan)."""
 
     filename: str = Field(..., description="File name")
     path: str = Field(..., description="File path")
@@ -50,7 +50,7 @@ class MdFileInfo(BaseModel):
     modified_time: str = Field(..., description="Modified time")
     kind: str = Field(
         default="md",
-        description="Artefact kind: 'md' or 'task_html'.",
+        description="Artefact kind: 'md' or 'task_plan'.",
     )
 
 

@@ -1,9 +1,9 @@
 """Shared helpers for the task-generator skill's CLI scripts.
 
 The heavy lifting (parse / mutate / validate / path-resolution) lives in
-``qwenpaw.agents.task_html`` — the library is shared with the REST API
-that backs the in-iframe interactions. Scripts here are thin CLI shims
-over that library, invoked by the LLM through ``execute_shell_command``.
+``qwenpaw.agents.task_plan``. Scripts here are thin CLI shims over that
+library, invoked by the LLM through ``execute_shell_command``. The UI is an
+A2UI projection of the JSON task plan, not a separate persistent document.
 
 Workspace detection:
 * ``--workspace`` flag on every script overrides everything.
@@ -17,29 +17,28 @@ Workspace detection:
 from __future__ import annotations
 
 import argparse
-import html as html_lib
 import json
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
-from qwenpaw.agents.task_html import (
-    TASK_DOC_SCRIPT_ID,
-    TASK_HTML_DIR,
+from qwenpaw.agents.task_plan import (
+    TASK_DIR,
+    dump_task_doc,
     rel_to_workspace,
     resolve_task_path,
     tasks_dir,
 )
 
 __all__ = [
-    "TASK_HTML_DIR",
+    "TASK_DIR",
     "add_workspace_arg",
     "die",
     "genui_push",
     "normalize_task_doc",
     "rel",
-    "render_shell",
+    "render_task_doc",
     "resolve_task_path",
     "resolve_workspace",
     "serialize_task",
@@ -87,21 +86,9 @@ def rel(p: Path, ws: Path) -> str:
     return rel_to_workspace(ws, p)
 
 
-def render_shell(name: str, task_doc: dict) -> str:
-    """Minimal HTML shell carrying the canonical task-doc JSON.
-
-    The interactive board renders natively in-app from this JSON (genui /
-    A2UI); the file is a portable canonical store, not a self-contained UI.
-    ``</`` is escaped as ``<\\/`` so task text can't close the host script tag.
-    """
-    escaped_name = html_lib.escape(name, quote=True)
-    doc_json = json.dumps(task_doc, ensure_ascii=False, indent=2).replace("</", "<\\/")
-    return (
-        '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
-        f"<title>{escaped_name}</title>\n</head>\n<body>\n"
-        f'<script type="application/json" id="{TASK_DOC_SCRIPT_ID}">\n'
-        f"{doc_json}\n</script>\n</body>\n</html>\n"
-    )
+def render_task_doc(task_doc: dict) -> str:
+    """Serialize the canonical task JSON document."""
+    return dump_task_doc(task_doc)
 
 
 def normalize_task_doc(name: str, raw: Any) -> dict:
@@ -168,19 +155,20 @@ def die(msg: str) -> int:
 # push is best-effort: failures (no server / no run key) are swallowed.
 
 
-def task_full_envelopes(html: str, rel_path: str) -> list:
-    """Full surface (createSurface + components + data) from task HTML."""
-    from qwenpaw.agents.task_html.render import render_html, surface_id_for
+def task_full_envelopes(text: str, rel_path: str) -> list:
+    """Full surface (createSurface + components + data) from task JSON."""
+    from qwenpaw.agents.task_plan import parse_task_doc
+    from qwenpaw.agents.task_plan.render import surface_id_for, task_to_envelopes
 
-    return render_html(html, surface_id_for(rel_path))
+    return task_to_envelopes(parse_task_doc(text), surface_id_for(rel_path))
 
 
-def task_structural_envelopes(html: str, rel_path: str) -> list:
+def task_structural_envelopes(text: str, rel_path: str) -> list:
     """Component refresh + data (no createSurface) — for in-place updates."""
-    from qwenpaw.agents.task_html import parse_task_doc
-    from qwenpaw.agents.task_html.render import structural_update, surface_id_for
+    from qwenpaw.agents.task_plan import parse_task_doc
+    from qwenpaw.agents.task_plan.render import structural_update, surface_id_for
 
-    return structural_update(parse_task_doc(html), surface_id_for(rel_path))
+    return structural_update(parse_task_doc(text), surface_id_for(rel_path))
 
 
 def genui_push(envelopes: list) -> None:

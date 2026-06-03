@@ -1,12 +1,12 @@
+# -*- coding: utf-8 -*-
 """A2UI v0.10 envelope + component builders, and the inbound action model.
 
 Envelopes are the canonical JSON wire form, so the builders here return plain
-``dict``s (mirroring how :mod:`qwenpaw.agents.task_html` operates on dicts).
+``dict``s and stay transport/framework agnostic.
 We keep a thin :class:`ClientAction` dataclass for the *inbound* direction
 because it is parsed out of an HTTP request body and benefits from typing.
 
-Server -> client messages (see
-``/Users/runlin/a2ui/specification/v0_10/json/server_to_client.json``):
+Server -> client messages (A2UI v0.10 ``server_to_client.json``):
     createSurface, updateComponents, updateDataModel, deleteSurface,
     callFunction, actionResponse.
 Client -> server (``client_to_server.json``): action, functionResponse, error.
@@ -15,6 +15,7 @@ This module only builds the subset qwenpaw emits today (createSurface,
 updateComponents, updateDataModel, deleteSurface, actionResponse). callFunction
 is intentionally omitted from the v1 surface.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -45,7 +46,10 @@ def create_surface(
     return {"version": A2UI_VERSION, "createSurface": inner}
 
 
-def update_components(surface_id: str, components: list[Component]) -> Envelope:
+def update_components(
+    surface_id: str,
+    components: list[Component],
+) -> Envelope:
     """Add/replace components on a surface. Exactly one component across the
     surface's accumulated set must have ``id == "root"`` (the validator and the
     :class:`~.state.SurfaceStateManager` enforce/track this)."""
@@ -117,37 +121,60 @@ def ref(path: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def text(id: str, value: Any, *, variant: Optional[str] = None) -> Component:
-    c: Component = {"id": id, "component": "Text", "text": value}
+def text(
+    component_id: str,
+    value: Any,
+    *,
+    variant: Optional[str] = None,
+) -> Component:
+    c: Component = {"id": component_id, "component": "Text", "text": value}
     if variant is not None:
         c["variant"] = variant
     return c
 
 
-def column(id: str, children: list[str], *, align: Optional[str] = None) -> Component:
-    c: Component = {"id": id, "component": "Column", "children": children}
+def column(
+    component_id: str,
+    children: list[str],
+    *,
+    align: Optional[str] = None,
+) -> Component:
+    c: Component = {
+        "id": component_id,
+        "component": "Column",
+        "children": children,
+    }
     if align is not None:
         c["align"] = align
     return c
 
 
-def row(id: str, children: list[str], *, align: Optional[str] = None) -> Component:
-    c: Component = {"id": id, "component": "Row", "children": children}
+def row(
+    component_id: str,
+    children: list[str],
+    *,
+    align: Optional[str] = None,
+) -> Component:
+    c: Component = {
+        "id": component_id,
+        "component": "Row",
+        "children": children,
+    }
     if align is not None:
         c["align"] = align
     return c
 
 
-def card(id: str, child: str) -> Component:
-    return {"id": id, "component": "Card", "child": child}
+def card(component_id: str, child: str) -> Component:
+    return {"id": component_id, "component": "Card", "child": child}
 
 
-def divider(id: str) -> Component:
-    return {"id": id, "component": "Divider"}
+def divider(component_id: str) -> Component:
+    return {"id": component_id, "component": "Divider"}
 
 
 def button(
-    id: str,
+    component_id: str,
     child: str,
     *,
     action_name: str,
@@ -159,7 +186,7 @@ def button(
     if want_response:
         event["wantResponse"] = True
     c: Component = {
-        "id": id,
+        "id": component_id,
         "component": "Button",
         "child": child,
         "action": {"event": event},
@@ -169,29 +196,44 @@ def button(
     return c
 
 
-def checkbox(id: str, label: Any, value: Any) -> Component:
+def checkbox(component_id: str, label: Any, value: Any) -> Component:
     return {
-        "id": id,
+        "id": component_id,
         "component": "CheckBox",
         "label": label,
         "value": value,
     }
 
 
-def text_field(id: str, *, label: Any = None, value: Any = None) -> Component:
-    c: Component = {"id": id, "component": "TextField"}
+def text_field(
+    component_id: str,
+    *,
+    label: Any = None,
+    value: Any = None,
+    action_name: Optional[str] = None,
+    context: Optional[dict[str, Any]] = None,
+) -> Component:
+    c: Component = {"id": component_id, "component": "TextField"}
     if label is not None:
         c["label"] = label
     if value is not None:
         c["value"] = value
+    if action_name is not None:
+        c["action"] = {
+            "event": {"name": action_name, "context": context or {}},
+        }
     return c
 
 
-def list_(id: str, *, children: Optional[list[str]] = None,
-          template: Optional[dict[str, str]] = None) -> Component:
+def list_(
+    component_id: str,
+    *,
+    children: Optional[list[str]] = None,
+    template: Optional[dict[str, str]] = None,
+) -> Component:
     """A List rendered either from an explicit ``children`` id array or from a
     ``template`` ``{componentId, path}`` bound to a data-model array."""
-    c: Component = {"id": id, "component": "List"}
+    c: Component = {"id": component_id, "component": "List"}
     if template is not None:
         c["children"] = template
     elif children is not None:
@@ -236,5 +278,5 @@ class ClientAction:
             timestamp=str(action.get("timestamp") or ""),
             context=dict(action.get("context") or {}),
             action_id=action.get("actionId"),
-            want_response=bool(action.get("wantResponse") or False),
+            want_response=bool(action.get("wantResponse")),
         )

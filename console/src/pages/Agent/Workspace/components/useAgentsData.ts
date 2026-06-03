@@ -168,8 +168,7 @@ export const useAgentsData = () => {
 
     setSelectedFile(file);
 
-    // Task HTML artefacts render natively via GenUiSurface (genui) — the
-    // /workspace/files/<name> endpoint only handles .md.
+    // Task plans render as A2UI surfaces; /workspace/files/<name> is for .md.
     if (file.kind && file.kind !== "md") {
       setFileContent("");
       setOriginalContent("");

@@ -1,16 +1,18 @@
+# -*- coding: utf-8 -*-
 """Server-side mirror of every live A2UI surface.
 
 Why mirror state the client already holds? Two reasons:
-1. An action handler that mutates canonical state (e.g. a task HTML file) needs
-   to compute the *minimal* A2UI patch to broadcast — which means knowing the
-   current data model.
+1. An action handler that mutates canonical state, such as a task plan JSON
+   file, needs to compute the *minimal* A2UI patch to broadcast. That means
+   knowing the current data model.
 2. A renderer that mounts late (the Workspace pane opens after the agent
-   already emitted the surface) cold-loads via :meth:`SurfaceStateManager.snapshot`
-   instead of refetching a whole file.
+   already emitted the surface) cold-loads via
+   :meth:`SurfaceStateManager.snapshot` instead of refetching a whole file.
 
 State is in-memory and rebuildable from canonical sources, so it is never
 persisted. Keyed by ``(run_key, surfaceId)``.
 """
+
 from __future__ import annotations
 
 import threading
@@ -19,7 +21,6 @@ from typing import Any
 
 from . import protocol
 from .catalog import BASIC_CATALOG_ID
-
 
 # ---------------------------------------------------------------------------
 # RFC-6901 JSON Pointer (the subset A2UI's updateDataModel uses)
@@ -31,7 +32,10 @@ def _unescape(token: str) -> str:
 
 
 def split_pointer(path: str) -> list[str]:
-    """Split an RFC-6901 pointer into tokens. ``""`` / ``"/"`` -> root ``[]``."""
+    """Split an RFC-6901 pointer into tokens.
+
+    ``""`` / ``"/"`` -> root ``[]``.
+    """
     if path in ("", "/"):
         return []
     if not path.startswith("/"):
@@ -50,7 +54,9 @@ def _descend(container: Any, token: str, *, create: bool) -> Any:
         if create and token not in container:
             container[token] = {}
         return container[token]
-    raise ValueError(f"cannot descend into {type(container).__name__} at {token!r}")
+    raise ValueError(
+        f"cannot descend into {type(container).__name__} at {token!r}",
+    )
 
 
 def pointer_upsert(doc: Any, path: str, value: Any) -> Any:
@@ -120,7 +126,7 @@ class _Surface:
 
 
 class SurfaceStateManager:
-    """Thread-safe registry of live surfaces, keyed by ``(run_key, surfaceId)``."""
+    """Thread-safe live surface registry keyed by ``(run_key, surfaceId)``."""
 
     def __init__(self) -> None:
         self._surfaces: dict[tuple[str, str], _Surface] = {}
@@ -157,18 +163,23 @@ class SurfaceStateManager:
 
     def snapshot(self, run_key: str, surface_id: str) -> list[dict[str, Any]]:
         """Replay envelopes that reconstruct the current surface from scratch
-        (for a late-mounting / reconnecting renderer). Empty list if unknown."""
+        (for a late-mounting / reconnecting renderer). Empty list if unknown.
+        """
         with self._lock:
             surf = self._surfaces.get((run_key, surface_id))
             if surf is None:
                 return []
             envelopes = [
-                protocol.create_surface(surface_id, catalog_id=surf.catalog_id),
+                protocol.create_surface(
+                    surface_id,
+                    catalog_id=surf.catalog_id,
+                ),
             ]
             if surf.components:
                 envelopes.append(
                     protocol.update_components(
-                        surface_id, list(surf.components.values()),
+                        surface_id,
+                        list(surf.components.values()),
                     ),
                 )
             envelopes.append(

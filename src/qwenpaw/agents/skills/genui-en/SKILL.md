@@ -21,8 +21,8 @@ back to you. You never write HTML or React — you emit a flat list of component
 
 This is the reusable "agent produces interactive UI + user acts on it" layer.
 Use it for ad-hoc surfaces (forms, confirmations, pickers, dashboards). For
-multi-step task plans, use the dedicated `task-generator` skill instead — it is
-already a consumer of this same interface.
+domain-specific workflows, use the dedicated consumer skill for that workflow;
+it can reuse this same interface while owning its own template and state rules.
 
 ## The loop
 

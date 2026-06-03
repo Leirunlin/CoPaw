@@ -1,9 +1,9 @@
 # Vendored catalog subset (v0.10 Basic)
 
-Only these components render today. The validator rejects anything else (the
+Only these Basic components render today. The validator rejects anything else (the
 deferred Basic components — Image, Video, AudioPlayer, Tabs, Modal,
 DateTimeInput, Slider — are not vendored yet). Keep this list in sync with
-`qwenpaw.agents.genui.catalog.ALLOWED_COMPONENTS`.
+`qwenpaw.agents.genui.catalog.BASIC_COMPONENTS`.
 
 `Dyn` = a DynamicValue (literal or `{"path":"…"}`).
 

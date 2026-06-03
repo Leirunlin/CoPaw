@@ -37,9 +37,8 @@ export const FileItem: React.FC<FileItemProps> = ({
   const { t } = useTranslation();
   const isSelected = selectedFile?.filename === file.filename;
   const isMemoryFile = file.filename === "MEMORY.md";
-  // Task HTML artefacts live alongside .md notes but can't be used as
-  // system-prompt sources — hide the enable Switch + drag handle.
-  const isTaskHtmlFile = file.kind === "task_html";
+  // Task plans are A2UI-backed artifacts, not system-prompt sources.
+  const isTaskPlanFile = file.kind === "task_plan";
 
   const {
     attributes,
@@ -50,7 +49,7 @@ export const FileItem: React.FC<FileItemProps> = ({
     isDragging,
   } = useSortable({
     id: file.filename,
-    disabled: !enabled || isTaskHtmlFile,
+    disabled: !enabled || isTaskPlanFile,
   });
 
   const style: React.CSSProperties = {
@@ -100,7 +99,7 @@ export const FileItem: React.FC<FileItemProps> = ({
             </div>
           </div>
           <div className={styles.fileItemActions}>
-            {!isTaskHtmlFile && (
+            {!isTaskPlanFile && (
               <Tooltip title={t("workspace.systemPromptToggleTooltip")}>
                 <Switch
                   size="small"

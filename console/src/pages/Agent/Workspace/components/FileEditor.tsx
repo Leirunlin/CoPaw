@@ -34,7 +34,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
   const [showMarkdown, setShowMarkdown] = useState(true);
 
   const isMarkdownFile = selectedFile?.filename.endsWith(".md") || false;
-  const isTaskHtmlFile = selectedFile?.kind === "task_html";
+  const isTaskPlanFile = selectedFile?.kind === "task_plan";
   const markdownContent = useMemo(
     () => stripFrontmatter(fileContent || ""),
     [fileContent],
@@ -75,24 +75,28 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                 <div className={styles.filePath}>{selectedFile.path}</div>
               </div>
               <div className={styles.buttonGroup}>
-                <Button
-                  size="small"
-                  onClick={onReset}
-                  disabled={!hasChanges}
-                  icon={<UndoOutlined />}
-                >
-                  {t("common.reset")}
-                </Button>
-                <Button
-                  type="primary"
-                  size="small"
-                  onClick={onSave}
-                  disabled={!hasChanges}
-                  loading={loading}
-                  icon={<SaveOutlined />}
-                >
-                  {t("common.save")}
-                </Button>
+                {!isTaskPlanFile && (
+                  <>
+                    <Button
+                      size="small"
+                      onClick={onReset}
+                      disabled={!hasChanges}
+                      icon={<UndoOutlined />}
+                    >
+                      {t("common.reset")}
+                    </Button>
+                    <Button
+                      type="primary"
+                      size="small"
+                      onClick={onSave}
+                      disabled={!hasChanges}
+                      loading={loading}
+                      icon={<SaveOutlined />}
+                    >
+                      {t("common.save")}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -120,7 +124,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                   </div>
                 )}
               </div>
-              {isTaskHtmlFile ? (
+              {isTaskPlanFile ? (
                 <GenUiSurface
                   surfaceId={`task:${selectedFile?.path || ""}`}
                   height="100%"

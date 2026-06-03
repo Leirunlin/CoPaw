@@ -1,8 +1,8 @@
 /**
- * Native renderer for the vendored A2UI v0.10 catalog subset:
+ * Native renderer for the vendored A2UI v0.10 Basic subset plus QwenPaw
+ * domain template components:
  * Text, Row, Column, List, Card, Divider, Button, CheckBox, TextField,
- * ChoicePicker, Icon. Keep this list in lock-step with the backend allowlist
- * (`qwenpaw.agents.genui.catalog.ALLOWED_COMPONENTS`).
+ * ChoicePicker, Icon, TaskBoard.
  */
 import React from "react";
 import {
@@ -16,6 +16,7 @@ import {
 } from "antd";
 import { SurfaceModel } from "./surfaceModel";
 import { Component, DynamicValue } from "./types";
+import { renderTaskBoard } from "./templates/taskPlan/TaskBoard";
 
 export interface RenderCtx {
   model: SurfaceModel;
@@ -47,6 +48,16 @@ function resolveContext(
   return out;
 }
 
+function dispatchAction(comp: Component, ctx: RenderCtx): void {
+  const action = comp.action as
+    | { event?: { name?: string; context?: Record<string, unknown> } }
+    | undefined;
+  const ev = action?.event;
+  if (ev?.name) {
+    ctx.onAction(ev.name, comp.id, resolveContext(ctx.model, ev.context));
+  }
+}
+
 export function renderComponent(
   id: string,
   ctx: RenderCtx,
@@ -57,9 +68,7 @@ export function renderComponent(
   if (!comp) return null;
   const next = new Set(seen);
   next.add(id);
-  return (
-    <ComponentNode key={id} comp={comp} ctx={ctx} seen={next} />
-  );
+  return <ComponentNode key={id} comp={comp} ctx={ctx} seen={next} />;
 }
 
 const ComponentNode: React.FC<{
@@ -71,6 +80,9 @@ const ComponentNode: React.FC<{
   const childIds = (comp.children as string[] | undefined) || [];
 
   switch (comp.component) {
+    case "TaskBoard":
+      return renderTaskBoard(comp, ctx);
+
     case "Text": {
       const text = String(model.resolve(comp.text as DynamicValue, ""));
       const variant = (comp.variant as string) || "body";
@@ -134,9 +146,6 @@ const ComponentNode: React.FC<{
       return <Divider style={{ margin: "8px 0" }} />;
 
     case "Button": {
-      const action = comp.action as
-        | { event?: { name?: string; context?: Record<string, unknown> } }
-        | undefined;
       const variant = (comp.variant as string) || "default";
       return (
         <Button
@@ -145,18 +154,11 @@ const ComponentNode: React.FC<{
             variant === "primary"
               ? "primary"
               : variant === "borderless"
-                ? "text"
-                : "default"
+              ? "text"
+              : "default"
           }
           onClick={() => {
-            const ev = action?.event;
-            if (ev?.name) {
-              ctx.onAction(
-                ev.name,
-                comp.id,
-                resolveContext(model, ev.context),
-              );
-            }
+            dispatchAction(comp, ctx);
           }}
         >
           {renderComponent(comp.child as string, ctx, seen)}
@@ -167,7 +169,17 @@ const ComponentNode: React.FC<{
     case "CheckBox": {
       const checked = Boolean(model.resolve(comp.value as DynamicValue, false));
       const label = String(model.resolve(comp.label as DynamicValue, ""));
-      return <Checkbox checked={checked}>{label}</Checkbox>;
+      return (
+        <Checkbox
+          checked={checked}
+          onChange={(e) => {
+            model.setBoundValue(comp.value as DynamicValue, e.target.checked);
+            dispatchAction(comp, ctx);
+          }}
+        >
+          {label}
+        </Checkbox>
+      );
     }
 
     case "TextField": {
@@ -176,7 +188,16 @@ const ComponentNode: React.FC<{
         ? String(model.resolve(comp.label as DynamicValue, ""))
         : undefined;
       return (
-        <Input size="small" defaultValue={value} placeholder={label} readOnly />
+        <Input
+          size="small"
+          value={value}
+          placeholder={label}
+          onChange={(e) =>
+            model.setBoundValue(comp.value as DynamicValue, e.target.value)
+          }
+          onBlur={() => dispatchAction(comp, ctx)}
+          onPressEnter={() => dispatchAction(comp, ctx)}
+        />
       );
     }
 
@@ -197,6 +218,10 @@ const ComponentNode: React.FC<{
             value: o.value as string,
           }))}
           style={{ minWidth: 120 }}
+          onChange={(next) => {
+            model.setBoundValue(comp.value as DynamicValue, next);
+            dispatchAction(comp, ctx);
+          }}
         />
       );
     }

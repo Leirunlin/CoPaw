@@ -1,4 +1,4 @@
-"""Read a task HTML and print its parsed contents as JSON.
+"""Read a task plan JSON file and print its parsed contents.
 
 Usage:
     python scripts/read.py <name-or-path>
@@ -6,7 +6,7 @@ Usage:
 Prints to stdout:
 
     {
-      "path": "tasks/<name>.html",
+      "path": "tasks/<name>.task.json",
       "name": "...",
       "version": "2",
       "tasks": [ {id, parent_id, title, state, description, outcome,
@@ -32,15 +32,15 @@ from common import (
     resolve_workspace,
     serialize_task,
 )
-from qwenpaw.agents.task_html import (
-    TASK_HTML_DIR,
+from qwenpaw.agents.task_plan import (
+    TASK_DIR,
     find_next_runnable,
     parse_task_doc,
 )
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Read a task HTML; emit parsed JSON.")
+    p = argparse.ArgumentParser(description="Read a task plan; emit parsed JSON.")
     p.add_argument("path", help="Task name or relative path under tasks/.")
     add_workspace_arg(p)
     args = p.parse_args()
@@ -49,14 +49,14 @@ def main() -> int:
     resolved = resolve_task_path(ws, args.path)
     if resolved is None:
         return die(
-            f"cannot resolve '{args.path}' under <workspace>/{TASK_HTML_DIR}/",
+            f"cannot resolve '{args.path}' under <workspace>/{TASK_DIR}/",
         )
     if not resolved.exists():
         return die(f"file not found: {rel(resolved, ws)}")
 
     try:
-        html = resolved.read_text(encoding="utf-8")
-        doc = parse_task_doc(html)
+        text = resolved.read_text(encoding="utf-8")
+        doc = parse_task_doc(text)
     except (OSError, ValueError) as e:
         return die(str(e))
 

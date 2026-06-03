@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Catalog-aware structural validation for A2UI envelopes.
 
 Concepts borrowed from A2UI's conformance suite; **no** google-adk SDK is
@@ -9,6 +10,7 @@ produce an un-renderable surface is rejected before it hits the stream.
 Errors are returned in A2UI's standard ``VALIDATION_FAILED`` shape so they can
 be fed straight back to the LLM for self-correction.
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -18,10 +20,15 @@ from .catalog import (
     ALLOWED_COMPONENTS,
     DEFERRED_COMPONENTS,
     ROOT_ID,
+    TASK_PLAN_CATALOG_ID,
 )
 from .state import split_pointer
 
 Error = dict[str, str]
+
+# Structural validation is intentionally explicit so every rejected envelope
+# gets a precise path and message.
+# pylint: disable=too-many-branches
 
 _MESSAGE_KEYS = frozenset(
     {
@@ -51,47 +58,86 @@ def validate_envelope(
 ) -> list[Error]:
     """Validate one server->client envelope.
 
-    ``expect_root=True`` additionally requires the ``updateComponents`` list to
-    contain the ``root`` component (use it when emitting a complete surface from
-    a CLI script, where no prior components exist to host the root).
+    ``expect_root=True`` additionally requires the ``updateComponents`` list
+    to contain the ``root`` component. Use it when emitting a complete surface
+    from a CLI script, where no prior components exist to host the root.
     """
     errors: list[Error] = []
 
     if envelope.get("version") != A2UI_VERSION:
         errors.append(
-            _err("", "/version",
-                 f"version must be {A2UI_VERSION!r}, got "
-                 f"{envelope.get('version')!r}."),
+            _err(
+                "",
+                "/version",
+                f"version must be {A2UI_VERSION!r}, got "
+                f"{envelope.get('version')!r}.",
+            ),
         )
 
     keys = _MESSAGE_KEYS & set(envelope)
     if len(keys) != 1:
         errors.append(
-            _err("", "/",
-                 f"envelope must contain exactly one message key, found "
-                 f"{sorted(keys) or 'none'}."),
+            _err(
+                "",
+                "/",
+                f"envelope must contain exactly one message key, found "
+                f"{sorted(keys) or 'none'}.",
+            ),
         )
         return errors
 
     key = next(iter(keys))
     inner = envelope[key]
-    surface_id = str(inner.get("surfaceId", "")) if isinstance(inner, dict) else ""
+    surface_id = (
+        str(inner.get("surfaceId", "")) if isinstance(inner, dict) else ""
+    )
 
     if key == "updateComponents":
-        errors += _validate_components(surface_id, inner, expect_root=expect_root)
+        errors += _validate_components(
+            surface_id,
+            inner,
+            expect_root=expect_root,
+        )
     elif key == "updateDataModel":
         errors += _validate_data_model(surface_id, inner)
     elif key == "createSurface":
         if not surface_id:
-            errors.append(_err(surface_id, "/createSurface/surfaceId",
-                               "surfaceId is required."))
+            errors.append(
+                _err(
+                    surface_id,
+                    "/createSurface/surfaceId",
+                    "surfaceId is required.",
+                ),
+            )
         if not inner.get("catalogId"):
-            errors.append(_err(surface_id, "/createSurface/catalogId",
-                               "catalogId is required."))
+            errors.append(
+                _err(
+                    surface_id,
+                    "/createSurface/catalogId",
+                    "catalogId is required.",
+                ),
+            )
+        if (
+            surface_id.startswith("task:")
+            and inner.get("catalogId") != TASK_PLAN_CATALOG_ID
+        ):
+            errors.append(
+                _err(
+                    surface_id,
+                    "/createSurface/catalogId",
+                    "task surfaces must use catalogId "
+                    f"{TASK_PLAN_CATALOG_ID!r}.",
+                ),
+            )
     elif key == "deleteSurface":
         if not surface_id:
-            errors.append(_err(surface_id, "/deleteSurface/surfaceId",
-                               "surfaceId is required."))
+            errors.append(
+                _err(
+                    surface_id,
+                    "/deleteSurface/surfaceId",
+                    "surfaceId is required.",
+                ),
+            )
 
     return errors
 
@@ -105,8 +151,13 @@ def _validate_components(
     errors: list[Error] = []
     components = inner.get("components")
     if not isinstance(components, list) or not components:
-        errors.append(_err(surface_id, "/updateComponents/components",
-                           "components must be a non-empty array."))
+        errors.append(
+            _err(
+                surface_id,
+                "/updateComponents/components",
+                "components must be a non-empty array.",
+            ),
+        )
         return errors
 
     seen_ids: set[str] = set()
@@ -114,38 +165,72 @@ def _validate_components(
     for i, comp in enumerate(components):
         base = f"/updateComponents/components/{i}"
         if not isinstance(comp, dict):
-            errors.append(_err(surface_id, base, "component must be an object."))
+            errors.append(
+                _err(surface_id, base, "component must be an object."),
+            )
             continue
         cid = comp.get("id")
         ctype = comp.get("component")
         if not cid:
-            errors.append(_err(surface_id, f"{base}/id", "component id is required."))
+            errors.append(
+                _err(surface_id, f"{base}/id", "component id is required."),
+            )
         else:
             if cid in seen_ids:
-                errors.append(_err(surface_id, f"{base}/id",
-                                   f"duplicate component id {cid!r}."))
+                errors.append(
+                    _err(
+                        surface_id,
+                        f"{base}/id",
+                        f"duplicate component id {cid!r}.",
+                    ),
+                )
             seen_ids.add(cid)
             if cid == ROOT_ID:
                 has_root = True
         if not ctype:
-            errors.append(_err(surface_id, f"{base}/component",
-                               "component type is required."))
+            errors.append(
+                _err(
+                    surface_id,
+                    f"{base}/component",
+                    "component type is required.",
+                ),
+            )
         elif ctype not in ALLOWED_COMPONENTS:
             if ctype in DEFERRED_COMPONENTS:
-                msg = (f"component {ctype!r} is part of the Basic catalog but "
-                       "not yet vendored in qwenpaw; use a vendored component.")
+                msg = (
+                    f"component {ctype!r} is part of the Basic catalog but "
+                    "not yet vendored in qwenpaw; use a vendored component."
+                )
             else:
-                msg = (f"unknown component {ctype!r}; allowed: "
-                       f"{sorted(ALLOWED_COMPONENTS)}.")
+                msg = (
+                    f"unknown component {ctype!r}; allowed: "
+                    f"{sorted(ALLOWED_COMPONENTS)}."
+                )
             errors.append(_err(surface_id, f"{base}/component", msg))
+        elif ctype == "TaskBoard" and not surface_id.startswith("task:"):
+            errors.append(
+                _err(
+                    surface_id,
+                    f"{base}/component",
+                    "TaskBoard is only valid on task: surfaces.",
+                ),
+            )
 
     if expect_root and not has_root:
-        errors.append(_err(surface_id, "/updateComponents/components",
-                           f"exactly one component must have id {ROOT_ID!r}."))
+        errors.append(
+            _err(
+                surface_id,
+                "/updateComponents/components",
+                f"exactly one component must have id {ROOT_ID!r}.",
+            ),
+        )
     return errors
 
 
-def _validate_data_model(surface_id: str, inner: dict[str, Any]) -> list[Error]:
+def _validate_data_model(
+    surface_id: str,
+    inner: dict[str, Any],
+) -> list[Error]:
     errors: list[Error] = []
     path = inner.get("path", "/")
     try:

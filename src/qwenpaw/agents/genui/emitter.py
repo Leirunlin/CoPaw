@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Bridge A2UI envelopes onto qwenpaw's existing SSE transport.
 
 An A2UI server->client message is carried as a ``DataContent`` event whose
@@ -14,6 +15,7 @@ Delivery reuses the per-run fan-out in ``task_tracker`` (``broadcast``): the
 same buffer/replay machinery that backs reconnects also carries surface
 updates, so a late or reconnecting renderer replays them for free.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -101,7 +103,9 @@ async def emit(
                 continue
         SURFACE_STATE.apply(run_key, env)
         sse = sse_for_envelope(
-            env, surface_id=_surface_id_of(env), run_key=run_key,
+            env,
+            surface_id=_surface_id_of(env),
+            run_key=run_key,
         )
         await tracker.broadcast(run_key, sse)
     return errors
@@ -111,8 +115,7 @@ def envelopes_to_sse(
     run_key: str,
     envelopes: list[dict[str, Any]],
 ) -> list[str]:
-    """Pure helper (no broadcast) — build SSE frames for a batch, e.g. to seed
-    a freshly attached queue from a snapshot."""
+    """Build SSE frames for a batch, e.g. to seed a freshly attached queue."""
     return [
         sse_for_envelope(env, surface_id=_surface_id_of(env), run_key=run_key)
         for env in envelopes

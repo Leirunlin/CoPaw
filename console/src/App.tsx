@@ -30,7 +30,7 @@ import { Suspense } from "react";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 
 const LoginPage = lazyImportWithRetry("./pages/Login/index");
-const TaskHtmlPage = lazyImportWithRetry("./pages/Agent/TaskHtml/index");
+const TaskPlanPage = lazyImportWithRetry("./pages/Agent/TaskPlan/index");
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
@@ -199,11 +199,11 @@ function AppInner() {
                 }
               />
               <Route
-                path="/task-html"
+                path="/task-plan"
                 element={
                   <AuthGuard>
                     <Suspense fallback={null}>
-                      <TaskHtmlPage />
+                      <TaskPlanPage />
                     </Suspense>
                   </AuthGuard>
                 }

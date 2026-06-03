@@ -1,15 +1,17 @@
-"""Per-workspace task manifest — extension-only metadata store.
+# -*- coding: utf-8 -*-
+"""Per-workspace task plan manifest — extension-only metadata store.
 
-Holds fields that HTML doesn't naturally carry: user-supplied summary,
-original creation timestamp, cached display name. Progress / state /
-next_runnable always come from parsing the live HTML, NOT from here —
-the manifest never duplicates anything the HTML already owns, so writers
-that mutate task state don't have to keep two places in sync.
+Holds fields that the task domain document does not need to carry:
+user-supplied summary, original creation timestamp, cached display name.
+Progress / state / next_runnable always come from parsing the live task JSON,
+NOT from here — the manifest never duplicates task state, so writers that
+mutate task state don't have to keep two places in sync.
 
-Authority: HTML is canonical for everything in :mod:`task_html.schema`.
+Authority: task JSON is canonical for everything in :mod:`task_plan.schema`.
 Manifest is a soft cache. ``read_manifest`` returns ``{}`` on missing or
 corrupt files; ``upsert_entry`` does an atomic tempfile + rename.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +20,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from .schema import TASK_HTML_DIR
+from .schema import TASK_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ MANIFEST_NAME = "manifest.json"
 
 
 def manifest_path(workspace: Path) -> Path:
-    return workspace / TASK_HTML_DIR / MANIFEST_NAME
+    return workspace / TASK_DIR / MANIFEST_NAME
 
 
 def read_manifest(workspace: Path) -> dict[str, dict]:

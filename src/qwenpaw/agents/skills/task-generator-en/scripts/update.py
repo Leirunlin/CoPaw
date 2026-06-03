@@ -1,4 +1,4 @@
-"""Patch one task's fields in a task HTML.
+"""Patch one task's fields in a task plan JSON document.
 
 Usage:
     python scripts/update.py <name-or-path> <task_id> [--state X] [--title X] \
@@ -24,14 +24,14 @@ from common import (
     resolve_workspace,
     task_structural_envelopes,
 )
-from qwenpaw.agents.task_html import set_task_field
+from qwenpaw.agents.task_plan import set_task_field
 
 
 _FIELDS = ("state", "title", "description", "outcome", "criteria", "test", "notes")
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Patch one task in a task HTML.")
+    p = argparse.ArgumentParser(description="Patch one task in a task plan.")
     p.add_argument("path", help="Task name or relative path under tasks/.")
     p.add_argument("task_id", help="Dotted-path id (e.g. 't-1' or 't-1.2').")
     p.add_argument("--state")
@@ -58,13 +58,13 @@ def main() -> int:
         return die("nothing to update (no fields supplied)")
 
     try:
-        html = resolved.read_text(encoding="utf-8")
-        new_html = set_task_field(html, args.task_id, **fields)
+        text = resolved.read_text(encoding="utf-8")
+        new_text = set_task_field(text, args.task_id, **fields)
     except (OSError, ValueError) as e:
         return die(str(e))
 
-    resolved.write_text(new_html, encoding="utf-8")
-    genui_push(task_structural_envelopes(new_html, rel(resolved, ws)))
+    resolved.write_text(new_text, encoding="utf-8")
+    genui_push(task_structural_envelopes(new_text, rel(resolved, ws)))
 
     # Notes can be multi-line — show "notes updated" instead of repr-ing
     # the whole value into the success summary.

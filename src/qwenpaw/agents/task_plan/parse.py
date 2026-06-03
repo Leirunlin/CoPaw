@@ -1,39 +1,24 @@
-"""Parse task HTML → :class:`TaskDoc`.
+# -*- coding: utf-8 -*-
+"""Parse task plan JSON → :class:`TaskDoc`.
 
-The canonical state is the JSON object inside the embedded
-``<script type="application/json" id="task-doc">…</script>`` block.
-We locate it by regex (faster + tolerant of HTML quirks) and decode
-it with the stdlib ``json`` parser. Field defaults are filled in if
-older docs lack the v4 additions (``description`` / ``outcome`` /
-``criteria``).
+The durable task state is plain JSON. A2UI surfaces are generated from this
+domain document, and user edits are written back to the same file before the
+agent continues. Field defaults are filled in for older docs.
 """
+
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Optional
 
 from .schema import (
     DOC_VERSION,
-    TASK_DOC_SCRIPT_ID,
     TASK_ID_RE,
     Task,
     TaskDoc,
     TaskState,
     VALID_STATES,
 )
-
-# Match the data script tag (id may appear in any attr order; case-insensitive).
-_SCRIPT_RE = re.compile(
-    r'<script\b[^>]*\bid\s*=\s*"' + re.escape(TASK_DOC_SCRIPT_ID) + r'"[^>]*>'
-    r"(?P<body>.*?)</script\s*>",
-    re.DOTALL | re.IGNORECASE,
-)
-
-
-def _extract_doc_json(html: str) -> Optional[str]:
-    m = _SCRIPT_RE.search(html)
-    return m.group("body") if m else None
 
 
 def _coerce_task(raw: Any) -> Optional[Task]:
@@ -58,22 +43,20 @@ def _coerce_task(raw: Any) -> Optional[Task]:
     )
 
 
-def parse_task_doc(html: str) -> TaskDoc:
-    """Parse *html* into a :class:`TaskDoc`. Raises ``ValueError`` if the
-    script tag is missing or its JSON is malformed."""
-    raw = _extract_doc_json(html)
-    if raw is None:
-        raise ValueError(
-            f'Not a task HTML document: missing '
-            f'<script id="{TASK_DOC_SCRIPT_ID}">.',
-        )
+def parse_task_doc(text: str) -> TaskDoc:
+    """Parse *text* into a :class:`TaskDoc`.
+
+    Raises ``ValueError`` if the JSON is malformed or the top-level shape is
+    not a task document. Invalid individual task rows are ignored here; strict
+    writer validation lives in :mod:`.update`.
+    """
     try:
-        data = json.loads(raw)
+        data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"task-doc JSON is malformed: {exc}") from exc
+        raise ValueError(f"task plan JSON is malformed: {exc}") from exc
 
     if not isinstance(data, dict):
-        raise ValueError("task-doc JSON must be an object.")
+        raise ValueError("task plan JSON must be an object.")
 
     tasks_raw = data.get("tasks") or []
     if not isinstance(tasks_raw, list):
@@ -90,6 +73,11 @@ def parse_task_doc(html: str) -> TaskDoc:
         version=str(data.get("version") or DOC_VERSION),
         tasks=tasks,
     )
+
+
+def dump_task_doc(doc: dict[str, Any]) -> str:
+    """Serialize a task plan dict in the canonical on-disk format."""
+    return json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
 
 
 _SORT_LAST = (10**9,)

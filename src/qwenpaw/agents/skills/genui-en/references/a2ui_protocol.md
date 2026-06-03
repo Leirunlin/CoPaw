@@ -14,7 +14,7 @@ key.
 | `updateDataModel` | `{surfaceId, path, value}` | Upsert `value` at RFC-6901 `path` (omit `value` to delete; `path:"/"` = whole model). |
 | `deleteSurface` | `{surfaceId}` | Remove the surface. |
 
-`catalogId` is always
+Use the Basic catalog for generic surfaces:
 `https://a2ui.org/specification/v0_10/catalogs/basic/catalog.json`.
 
 ## Components = a flat adjacency list
@@ -72,7 +72,7 @@ payload. Respond by emitting an updated surface (or a data patch).
 
 - Exactly one `root`. Every referenced child id must exist (or be sent in the
   same/next `updateComponents`).
-- Only use catalog components (`references/catalog.md`); unknown or not-yet-
+- Only use Basic catalog components (`references/catalog.md`); unknown or not-yet-
   vendored components are rejected with `VALIDATION_FAILED`.
 - Keep `surfaceId` stable across updates so they target the same surface.
 - Don't inline child components — define each with its own `id` and reference

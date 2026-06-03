@@ -1,4 +1,4 @@
-export type WorkspaceFileKind = "md" | "task_html";
+export type WorkspaceFileKind = "md" | "task_plan";
 
 export interface MdFileInfo {
   filename: string;

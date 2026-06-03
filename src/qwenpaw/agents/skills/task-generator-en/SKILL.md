@@ -1,6 +1,6 @@
 ---
 name: task-generator
-description: "Use this skill to plan a multi-step task as a structured HTML task graph and step through it. Triggers on 'plan a task', 'make a task list and run it', 'do this task', 'continue the task', 'resume the task', and on any /task-generator [arg] invocation. Creates <workspace>/tasks/<name>.html (stages of task cards) rendered natively in the Workspace pane; the user reviews / edits it there; once they say 'execute' the agent steps through the file."
+description: "Use this skill to plan a multi-step task as a structured task plan and execute it step by step. Triggers on 'plan a task', 'make a task list and run it', 'do this task', 'continue the task', 'resume the task', and any /task-generator [arg] invocation. Creates <workspace>/tasks/<name>.task.json; the Workspace pane renders it as a native A2UI board, users can edit it there, and the agent rereads the same JSON before each execution step."
 metadata:
   builtin_skill_version: "1.0"
   qwenpaw:
@@ -8,258 +8,117 @@ metadata:
     requires: {}
 ---
 
-> **Important:** All `scripts/` paths are relative to this skill directory.
-> Run via: `cd {this_skill_dir} && python scripts/<name>.py ...`
-> Or pass `cwd` to `execute_shell_command`.
+> **Important:** all `scripts/` paths are relative to this skill directory.
+> Run them with `cd {this_skill_dir} && python scripts/<name>.py ...`, or pass
+> the skill directory as `cwd` to `execute_shell_command`.
 
 # Task Generator
 
-Two distinct phases, **one user gate** between them:
+This skill has two phases, with exactly one user gate between them:
 
-* **Phase 1 — Create.** Build a task JSON, call `scripts/materialize.py`.
-  The script writes that JSON into `<workspace>/tasks/<name>.html`. Tell the
-  user where the file is and **yield**.
-* **Phase 2 — Execute.** When the user says "execute" / "go" / "执行" /
-  "开始" / "继续", step through the file.
+* **Phase 1 - Create.** Build a `task_doc` JSON object and call `scripts/materialize.py`. The script writes `<workspace>/tasks/<name>.task.json`, projects it as an A2UI board into the current run, then the agent yields.
+* **Phase 2 - Execute.** After the user says "execute" / "go" / "start" / "continue", the agent rereads the same task JSON each loop, executes `next_runnable`, and writes status back.
 
-The board is rendered natively in-app from the JSON (genui / A2UI) — the LLM
-**emits JSON data only**. Don't echo HTML.
+The board is an A2UI surface using the task-plan domain template documented in
+`references/task_board_template.md`. **The JSON task plan is the only source of
+truth**: agent writes update the UI; user edits in the UI write back through
+`task.patch`; the next `read.py` call sees those edits.
 
-## Scripts at a glance
+## Scripts
 
 | Script | Purpose |
-|--------|---------|
-| `scripts/materialize.py <name> [--summary "..."]` (JSON via stdin) | Create the task HTML + record manifest metadata |
-| `scripts/read.py <name>` | Parse HTML; print JSON (tasks + next_runnable) to stdout |
-| `scripts/update.py <name> <task_id> --state X --notes "..."` | Patch fields on one task |
-| `scripts/list.py` | JSON: every task's path / name / summary / created / modified (manifest read, no HTML parse) |
+|---|---|
+| `scripts/materialize.py <name> [--summary "..."]` (JSON from stdin) | Create `tasks/<name>.task.json`, write manifest metadata, emit the A2UI surface |
+| `scripts/read.py <name-or-path>` | Read task JSON and print tasks + next_runnable |
+| `scripts/update.py <name-or-path> <task_id> --state X --notes "..."` | Patch one task field and push an A2UI update |
+| `scripts/list.py` | List task file metadata from manifest/stat only |
 
-All scripts: success goes to stdout, errors `ERROR: ...` to stderr with
-exit 1.
+Scripts print success to stdout. Errors are `ERROR: ...` on stderr with exit 1.
 
-## Step 0. Decide the invocation path
+## Dispatch
 
-* `/task-generator <focus>` (or natural language "plan a task to do X")
-  → **Phase 1 (Create)**.
-* `/task-generator` with no arg → run `scripts/list.py`; if the user
-  previously said "execute", jump to **Phase 2** on the newest file.
-  Otherwise tell them which files exist and ask which to act on.
-* `/task-generator <existing-name>` matching an existing
-  `<workspace>/tasks/<name>.html` → ask the user: refine (Phase 1
-  re-create with `-v2` name) or execute (Phase 2)?
-* "execute" / "go" / "execute the task" after a recent Create →
-  **Phase 2** on the most recent file.
-* On any user message implying state inquiry on existing tasks —
-  "resume", "continue", "what's left", "做到哪了", "status", "继续
-  task" — **call `scripts/list.py` FIRST**, even if you feel you
-  remember from earlier turns. The manifest gives every task's
-  identifier + summary in one call; pick the resume candidate from
-  that JSON, ask the user to confirm, then `scripts/read.py <name>`
-  to load full state before stepping through Phase 2. Never resume
-  silently — the user gate is the same as Phase 1 → Phase 2.
+* `/task-generator <focus>` or natural language "plan a task for X" -> Phase 1.
+* `/task-generator` with no args -> run `scripts/list.py`. If the user explicitly asked to execute/continue, confirm the candidate before Phase 2; otherwise show the list and ask which task to operate on.
+* `/task-generator <existing-name>` matching `<workspace>/tasks/<name>.task.json` -> ask whether to refine (create `-v2`) or execute.
+* User says "execute" / "go" / "start" -> execute the just-created or confirmed task.
+* User says "resume" / "continue" / "status" -> run `scripts/list.py`, confirm the target, then `scripts/read.py <name>`.
 
-## Phase 1 — Create
+Never auto-resume from memory. Cross-session resume starts with `list.py`.
 
-### Step 1.1 Derive `task_name`
+## Phase 1 - Create
 
-```
-task_name = "-".join(focus.split())
-```
-
-Examples: `add login feature` → `add-login-feature`;
-`重构 登录 流程` → `重构-登录-流程`.
-
-### Step 1.2 Build `task_doc`
-
-`task_doc` is a JSON object (**strict 2-level hierarchy**):
+1. Derive `task_name`: `"-".join(focus.split())`.
+2. Build a strictly two-level `task_doc`:
 
 ```json
 {
-  "name": "<human-facing task name>",
+  "name": "Human readable task name",
   "version": "2",
   "tasks": [
-    {"id": "t-1",   "parent_id": "",    "title": "Pre-trip research",          "description": "", "outcome": "", "criteria": "", "test": "", "state": "todo"},
-    {"id": "t-1.1", "parent_id": "t-1", "title": "Visa + entry requirements",  "description": "...", "outcome": "...", "criteria": "...", "test": "", "state": "todo"},
-    {"id": "t-2",   "parent_id": "",    "title": "Lodging research",           "state": "todo"}
+    {"id": "t-1", "parent_id": "", "title": "Stage", "state": "todo", "description": "", "outcome": "", "criteria": "", "test": "", "notes": ""},
+    {"id": "t-1.1", "parent_id": "t-1", "title": "Sub-task", "state": "todo", "description": "...", "outcome": "...", "criteria": "...", "test": "", "notes": ""}
   ]
 }
 ```
 
-### Step 1.3 Call `scripts/materialize.py`
-
-**Sole entrypoint: stdin via HEREDOC.** Pipe the `task_doc` JSON into
-the script using a single-quoted HEREDOC marker. Use `EOTASKDOC` (not
-`EOF`) so that a literal `EOF` line inside the JSON can't terminate
-the heredoc early. Pass `--summary "..."` with a single-sentence
-intent string derived from the user's prompt — the manifest stores it
-so future `list.py` calls (and a possible cross-session resume) can
-surface the task without parsing the HTML:
+3. Pipe JSON to `scripts/materialize.py`; prefer `--summary`:
 
 ```bash
-python scripts/materialize.py <task_name> --summary "Add email/password login to the dashboard" <<'EOTASKDOC'
+python scripts/materialize.py add-login --summary "Implement login" <<'EOTASKDOC'
 {
-  "name": "...",
+  "name": "Implement login",
   "version": "2",
-  "tasks": [...]
+  "tasks": []
 }
 EOTASKDOC
 ```
 
-Invoke via `execute_shell_command(command=<whole block>, cwd="<this_skill_dir>")`.
-The single-quoted marker (`<<'EOTASKDOC'`) disables shell variable
-expansion so `$` characters inside the JSON survive intact. **Do NOT**
-write a temp file first and then call the script — that's two tool
-calls and pollutes `/tmp`. `--summary` is optional but strongly
-recommended; without it the manifest entry's `summary` is empty and
-the agent loses the cross-session resume hint.
+Success includes `[task-plan:tasks/<name>.task.json]` on stdout. Tell the user the file path and ask them to reply **"execute"/"go"**. Always yield after creation; do not start execution in the same turn.
 
-**Success**: stdout contains `[task-html:tasks/<name>.html]`. Tell the
-user the file is at `<workspace>/tasks/<task_name>.html`, surface it in
-the Workspace pane, and ask them to reply **"execute" / "go"**.
-**YIELD.**
+## Phase 2 - Execute
 
-**Failure**: stderr has `ERROR: ...` (e.g. schema validation, file
-exists). Fix the dict and retry. Don't surface raw errors to the user
-unless trivial.
-
-After yielding, do NOT do any further work. The user's NEXT message
-("execute" / "go" / "looks good, run it") triggers Phase 2.
-
-## Phase 2 — Execute
-
-Single iterative loop. No extra confirmation inside the loop except on
-failure or explicit user stop.
-
-### Step 2.1 Re-read the file
+Start every loop by rereading:
 
 ```bash
-python scripts/read.py <task_name>
+python scripts/read.py <name-or-path>
 ```
 
-stdout JSON shape:
+`read.py` returns:
 
 ```json
 {
-  "path": "tasks/<name>.html",
+  "path": "tasks/<name>.task.json",
   "name": "...",
   "version": "2",
-  "tasks": [
-    {"id":"t-1","parent_id":"","title":"...","state":"todo",
-     "description":"...","outcome":"...","criteria":"...","test":"...","notes":"..."},
-    ...
-  ],
-  "next_runnable": {…} | null
+  "tasks": [{ "id": "t-1", "parent_id": "", "title": "...", "state": "todo", "description": "", "outcome": "", "criteria": "", "test": "", "notes": "" }],
+  "next_runnable": { "...": "..." } | null
 }
 ```
 
-**Call this at the start of every iteration.** It picks up user edits
-made on the board (edits, deletes, adds, state clicks).
+Execution rules:
 
-### Step 2.2 Pick next task
+* `next_runnable === null` -> all leaf tasks are terminal; report completion.
+* If `next_runnable.state === "in_progress"`, a prior run was interrupted; continue from notes.
+* If the user edits title / description / notes / state in the board, the reread sees it. The file wins.
+* Mark start: `python scripts/update.py <name> <task_id> --state in_progress`.
+* On success: `python scripts/update.py <name> <task_id> --state done --notes "short summary"`.
+* On failure: `python scripts/update.py <name> <task_id> --state failed --notes "error + short hypothesis"`, then yield.
+* If `task.test` is non-empty, run that shell command after the main work.
 
-* `next_runnable === null` → every leaf is terminal → **Step 2.5
-  (Finish)**.
-* Otherwise `task = next_runnable`.
-* If `task.state === "in_progress"`, you (or a previous run) left it
-  mid-execution; acknowledge that and continue from where the notes
-  indicate.
+## Schema Rules
 
-### Step 2.3 Detect undo / structural edit
+* ids are `t-N` or `t-N.M`; max depth is 2.
+* ids are globally unique.
+* child `parent_id` must point to a top-level task.
+* states: `todo` / `in_progress` / `done` / `skipped` / `blocked` / `failed`.
+* `title` is required and should be a short verb phrase.
+* `description` / `outcome` / `criteria` / `test` / `notes` are strings; use `""` when absent.
+* Do not invent `test` commands unless the user or repo makes them clear.
 
-If a previously-done task is now `state=todo` while later tasks are
-still `done`, the user clicked the status badge to undo (or hand-edited).
-Ask them whether to re-run from that point or skip. **Yield.** Don't
-auto-rerun — re-execution risks overwriting work.
+## Anti-Patterns
 
-If `tasks` shape changed since last iteration (counts differ, new ids
-appeared), acknowledge briefly and continue — the user's edits are
-authoritative.
-
-### Step 2.4 Run one task
-
-1. Mark in-progress:
-
-   ```bash
-   python scripts/update.py <task_name> <task_id> --state in_progress
-   ```
-
-2. Execute the task using regular tools (`execute_shell_command`,
-   `write_file`, `edit_file`, channel responses, …). Read
-   `task.description` / `task.outcome` / `task.criteria` for the
-   details and acceptance bar.
-3. If `task.test` is a non-empty shell command, run it via
-   `execute_shell_command(command=task.test)` after the main work.
-   * Exit 0 → success.
-   * Non-zero → failure (record truncated output in notes).
-4. On success:
-
-   ```bash
-   python scripts/update.py <task_name> <task_id> --state done --notes "one-paragraph summary"
-   ```
-
-   On failure:
-
-   ```bash
-   python scripts/update.py <task_name> <task_id> --state failed --notes "error + short hypothesis"
-   ```
-
-   Failure → **yield** — user decides whether to fix and retry, skip,
-   or stop.
-
-Go back to **Step 2.1**.
-
-### Step 2.5 Finish
-
-When `next_runnable === null`:
-
-1. Scan `tasks` for any `failed` / `blocked` leaves. Report them with
-   their notes so the user knows what didn't finish.
-2. Tell the user: file at `<workspace>/tasks/<name>.html`. Done.
-3. Do NOT delete the file — the user keeps it as a record.
-
-## task_doc schema rules
-
-* **2-level limit**: ids may only be `t-N` (top-level / stage) or
-  `t-N.M` (sub-task). Anything like `t-1.1.1` is **rejected by the
-  script**.
-* **Unique ids**: every id appears at most once.
-* **parent_id**: a sub-task's `parent_id` MUST point to a top-level
-  task; it cannot point to another sub-task. Top-level tasks have
-  empty `parent_id`.
-* **Valid states**: `todo` / `in_progress` / `done` / `skipped` /
-  `blocked` / `failed`. Initial drafts always use `todo`.
-* **title** is required, short verb phrase.
-* `description` / `outcome` / `criteria` / `test` / `notes` are
-  optional strings. Use empty string when absent — don't write
-  placeholder text like "TBD".
-* `test`: don't invent shell commands the user didn't mention.
-
-## Parallelism rules
-
-* **Top-level tasks (`t-1`, `t-2`, `t-3`, …) are SERIAL.** `t-2` does
-  not start until every leaf under `t-1` is in a terminal state
-  (`done` / `skipped`). Order top-level tasks so each depends only on
-  those before it.
-* **Same-parent sub-tasks (`t-1.1`, `t-1.2`, `t-1.3` under `t-1`) MAY
-  run in parallel** when independent. Group siblings under one parent
-  when the work decomposes into side-effect-free chunks. Sequence them
-  under separate parents (`t-1.1` → `t-2.1`) when one output feeds
-  the next.
-* For v1 execution, `next_runnable` still returns one task at a time
-  in id order. Treat parallelism as a structural intent — the agent
-  may batch `execute_shell_command` calls in a single turn when safe.
-
-## Anti-patterns
-
-* Don't echo HTML. **Emit JSON only.**
-* Don't paste the rendered HTML into chat. The user views the board in the
-  Workspace pane or "Open in new tab".
-* Don't proceed to Phase 2 in the same turn as Phase 1. Always yield
-  after materialize. The user gates Phase 2.
-* Don't skip the re-read in Step 2.1. That defeats the "user can edit
-  the file mid-flight" design.
-* Don't auto-add subtasks during Phase 2. If work explodes, log it in
-  the current task's notes and ask the user.
-* Don't put 3-level ids (`t-1.1.1`) in task_doc; the script rejects.
-* Don't loop `read.py` over every file to find the resume target —
-  call `list.py` once and pick from its metadata.
+* Do not generate or paste HTML. The task plan is JSON; the UI is an A2UI projection.
+* Do not skip the per-loop `read.py`; the user may have edited the board.
+* Do not auto-resume; use `list.py` and confirm.
+* Do not create `t-1.1.1` or deeper ids.
+* Do not add tasks automatically during execution. If scope grows, write notes and let the user decide.

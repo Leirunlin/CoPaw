@@ -1,0 +1,421 @@
+.taskBoard {
+  min-height: 100%;
+  padding: 20px 24px 28px;
+  background: #ffffff;
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 650;
+  color: #0f172a;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.meta {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.progressBar {
+  width: min(280px, 28vw);
+  min-width: 140px;
+  height: 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #16a34a);
+  transition: width 240ms ease;
+}
+
+.progressText {
+  min-width: 56px;
+  text-align: right;
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.current {
+  display: inline-flex;
+  align-items: center;
+  max-width: 360px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 16px;
+  align-items: flex-start;
+}
+
+.stageWrap {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  flex: 0 0 auto;
+}
+
+.arrow {
+  display: flex;
+  align-items: center;
+  color: #cbd5e1;
+  font-size: 22px;
+  padding-top: 58px;
+}
+
+.stage {
+  flex: 0 0 320px;
+  width: 320px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.stageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.stageTitleWrap {
+  min-width: 0;
+  flex: 1;
+}
+
+.stageTitleInput {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: #1e293b;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.stageTitleInput:focus {
+  box-shadow: none;
+  background: #ffffff;
+  padding: 4px 6px;
+  border: 1px solid #bfdbfe;
+}
+
+.stageMeta {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stageActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.stageBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 72px;
+  padding: 10px;
+}
+
+.task {
+  position: relative;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.task:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+
+.taskActive {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.taskDone {
+  border-color: #bbf7d0;
+  background: #fbfffc;
+}
+
+.taskHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.taskTitleInput {
+  flex: 1;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.taskTitleInput:focus {
+  padding: 3px 6px;
+  border: 1px solid #bfdbfe;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.badgeButton {
+  height: auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  text-transform: none;
+}
+
+.taskDesc,
+.notesInput {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: none;
+}
+
+.taskDesc:focus,
+.notesInput:focus {
+  padding: 6px 8px;
+  border: 1px solid #bfdbfe;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.section {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-left: 2px solid #cbd5e1;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sectionOutcome {
+  border-left-color: #2563eb;
+}
+
+.sectionCriteria {
+  border-left-color: #7c3aed;
+}
+
+.sectionTest {
+  border-left-color: #16a34a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.sectionLabel {
+  color: #64748b;
+  font-weight: 650;
+  margin-bottom: 3px;
+}
+
+.sectionInput {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  resize: none;
+}
+
+.sectionInput:focus {
+  padding: 5px 7px;
+  border: 1px solid #bfdbfe;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.notes {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.notesLabel {
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.cardActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.addTaskButton {
+  width: 100%;
+  min-height: 34px;
+  border-style: dashed;
+  color: #64748b;
+}
+
+.addTaskButton:hover {
+  color: #2563eb !important;
+  border-color: #2563eb !important;
+  background: #eff6ff !important;
+}
+
+.empty {
+  padding: 24px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  text-align: center;
+}
+
+.statusTodo {
+  color: #475569 !important;
+  background: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+.statusInProgress {
+  color: #1e40af !important;
+  background: #dbeafe !important;
+  border-color: #bfdbfe !important;
+}
+
+.statusDone {
+  color: #166534 !important;
+  background: #dcfce7 !important;
+  border-color: #bbf7d0 !important;
+}
+
+.statusSkipped {
+  color: #94a3b8 !important;
+  background: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+  text-decoration: line-through;
+}
+
+.statusBlocked {
+  color: #92400e !important;
+  background: #fef3c7 !important;
+  border-color: #fde68a !important;
+}
+
+.statusFailed {
+  color: #991b1b !important;
+  background: #fee2e2 !important;
+  border-color: #fecaca !important;
+}
+
+@media (max-width: 768px) {
+  .taskBoard {
+    padding: 12px;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .controls {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .progressBar {
+    width: 100%;
+    max-width: none;
+  }
+
+  .graph {
+    flex-direction: column;
+  }
+
+  .stageWrap {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .stage {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .arrow {
+    justify-content: center;
+    padding-top: 0;
+    transform: rotate(90deg);
+  }
+}

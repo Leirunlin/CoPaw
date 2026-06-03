@@ -1,10 +1,10 @@
-"""List task HTML files under ``<workspace>/tasks/`` newest-first.
+"""List task plan JSON files under ``<workspace>/tasks/`` newest-first.
 
 Output: pure JSON.
 
     {
       "files": [
-        {"path": "tasks/<stem>.html",
+        {"path": "tasks/<stem>.task.json",
          "name": "<task_doc.name from manifest, or stem fallback>",
          "summary": "<from manifest, or empty>",
          "created": "<ISO, from manifest, or st_ctime fallback>",
@@ -15,7 +15,7 @@ Output: pure JSON.
 
 Reads the manifest (``tasks/manifest.json``) for ``name`` / ``summary`` /
 ``created``; if missing or corrupt, those fall back to filesystem stat
-or stem. Never parses the embedded HTML — list.py is metadata-only.
+or stem. Never parses task JSON — list.py is metadata-only.
 
 Use this as the session-resume primitive: one call gives the agent
 all task identifiers, summaries, and timestamps. To load per-task
@@ -30,12 +30,12 @@ import sys
 from datetime import datetime
 
 from common import add_workspace_arg, rel, resolve_workspace, tasks_dir
-from qwenpaw.agents.task_html import MANIFEST_NAME, read_manifest
+from qwenpaw.agents.task_plan import MANIFEST_NAME, TASK_FILE_SUFFIX, read_manifest
 
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="List task HTML files newest-first; emit JSON metadata.",
+        description="List task plan files newest-first; emit JSON metadata.",
     )
     add_workspace_arg(p)
     args = p.parse_args()
@@ -52,7 +52,7 @@ def main() -> int:
     files = sorted(
         (
             f
-            for f in td.glob("*.html")
+            for f in td.glob(f"*{TASK_FILE_SUFFIX}")
             if f.is_file() and f.name != MANIFEST_NAME
         ),
         key=lambda f: f.stat().st_mtime,
@@ -62,11 +62,12 @@ def main() -> int:
     entries = []
     for f in files:
         st = f.stat()
-        meta = manifest.get(f.stem) or {}
+        stem = f.name[: -len(TASK_FILE_SUFFIX)]
+        meta = manifest.get(stem) or {}
         entries.append(
             {
                 "path": rel(f, ws),
-                "name": meta.get("name") or f.stem,
+                "name": meta.get("name") or stem,
                 "summary": meta.get("summary") or "",
                 "created": (
                     meta.get("created")

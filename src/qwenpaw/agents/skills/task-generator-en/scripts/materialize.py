@@ -1,16 +1,15 @@
-"""Create a task plan HTML at ``<workspace>/tasks/<name>.html``.
+"""Create a task plan JSON document at ``<workspace>/tasks/<name>.task.json``.
 
 Usage:
     python scripts/materialize.py <name> <<'EOTASKDOC'
     {"name":"...","version":"2","tasks":[...]}
     EOTASKDOC
 
-Reads ``task_doc`` JSON from stdin only. Writes a minimal HTML shell
-holding the JSON in the embedded ``<script id="task-doc">`` block to
-``<workspace>/tasks/<name>.html``. The interactive board renders
-natively in-app from that JSON (genui / A2UI).
+Reads ``task_doc`` JSON from stdin only. Writes it as the canonical task plan
+JSON. The interactive board renders natively in-app as an A2UI projection of
+that JSON.
 
-Prints ``[task-html:<rel>]`` on success (the marker the agent watches
+Prints ``[task-plan:<rel>]`` on success (the marker the agent watches
 for) and exits 0; on failure writes ``ERROR: ...`` to stderr, exit 1.
 """
 from __future__ import annotations
@@ -29,19 +28,24 @@ from common import (
     genui_push,
     normalize_task_doc,
     rel,
-    render_shell,
+    render_task_doc,
     resolve_workspace,
     task_full_envelopes,
     tasks_dir,
 )
-from qwenpaw.agents.task_html import MAX_HTML_BYTES, upsert_entry, validate
+from qwenpaw.agents.task_plan import (
+    MAX_TASK_BYTES,
+    TASK_FILE_SUFFIX,
+    upsert_entry,
+    validate,
+)
 
 # Filename stem allowlist: ASCII word chars + . + - + CJK.
 NAME_RE = re.compile(r"^[\w.\-一-鿿]+$")
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Create a task plan HTML.")
+    p = argparse.ArgumentParser(description="Create a task plan JSON file.")
     p.add_argument("name", help="Filename stem (no path, no extension).")
     p.add_argument(
         "--summary",
@@ -72,10 +76,10 @@ def main() -> int:
     except ValueError as e:
         return die(str(e))
 
-    rendered = render_shell(doc["name"], doc)
+    rendered = render_task_doc(doc)
 
-    if len(rendered.encode("utf-8")) > MAX_HTML_BYTES:
-        return die(f"rendered HTML exceeds {MAX_HTML_BYTES // 1024} KiB")
+    if len(rendered.encode("utf-8")) > MAX_TASK_BYTES:
+        return die(f"task plan exceeds {MAX_TASK_BYTES // 1024} KiB")
 
     errors = validate(rendered)
     if errors:
@@ -86,7 +90,7 @@ def main() -> int:
 
     ws = resolve_workspace(args)
     td = tasks_dir(ws)
-    target = td / f"{args.name}.html"
+    target = td / f"{args.name}{TASK_FILE_SUFFIX}"
 
     try:
         target.resolve().relative_to(td.resolve())
@@ -95,7 +99,7 @@ def main() -> int:
 
     if target.exists():
         return die(
-            f"file '{args.name}.html' already exists. "
+            f"file '{args.name}{TASK_FILE_SUFFIX}' already exists. "
             f"Use scripts/update.py to modify it, or pick a fresh name "
             f"(e.g. '{args.name}-v2').",
         )
@@ -106,7 +110,7 @@ def main() -> int:
     # read.py would reject.
     fd, tmp = tempfile.mkstemp(
         prefix=f".{args.name}.",
-        suffix=".html.tmp",
+        suffix=f"{TASK_FILE_SUFFIX}.tmp",
         dir=str(td),
     )
     try:
@@ -120,7 +124,7 @@ def main() -> int:
             pass
         return die(f"write failed: {e}")
 
-    # Manifest is a soft extension store. HTML is the source of truth;
+    # Manifest is a soft extension store. JSON is the source of truth;
     # failure to record metadata shouldn't roll back a successful task
     # creation — warn and move on.
     try:
@@ -137,8 +141,8 @@ def main() -> int:
     rel_path = rel(target, ws)
     genui_push(task_full_envelopes(rendered, rel_path))
 
-    print("OK: task HTML created")
-    print(f"[task-html:{rel_path}]")
+    print("OK: task plan created")
+    print(f"[task-plan:{rel_path}]")
     print(f"file: {rel_path}")
     return 0
 

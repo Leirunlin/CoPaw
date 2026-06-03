@@ -91,10 +91,10 @@ class AgentMdManager:
         Returns:
             list[dict]: each entry has:
                 - filename: display name (basename for ``.md``,
-                  ``tasks/<name>.html`` for task HTML).
+                  ``tasks/<name>.task.json`` for task plans).
                 - path: workspace-relative path, suitable for both
-                  ``/workspace/files/<x>`` and ``/task_html/*`` calls.
-                - kind: ``"md"`` or ``"task_html"`` — the frontend's
+                  the Workspace UI and ``task:`` A2UI surface ids.
+                - kind: ``"md"`` or ``"task_plan"`` — the frontend's
                   switch lives here, no extension parsing.
                 - size, created_time, modified_time.
         """
@@ -104,7 +104,7 @@ class AgentMdManager:
         tasks_dir = self.working_dir / "tasks"
         if tasks_dir.exists():
             candidates.extend(
-                (f, "task_html") for f in tasks_dir.glob("*.html")
+                (f, "task_plan") for f in tasks_dir.glob("*.task.json")
             )
 
         # Sort by modification time descending (newest first).

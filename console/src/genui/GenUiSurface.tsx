@@ -6,16 +6,17 @@
  * the unified replacement for bespoke per-feature viewers (the task board is
  * its first consumer); a surface is addressed by `surfaceId`.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { message as antdMessage } from "antd";
-import { fetchSurface, getRunKey, postAction } from "./api";
+import { useAgentStore } from "../stores/agentStore";
+import { fetchSurface, postAction } from "./api";
 import { renderComponent } from "./components";
 import { subscribeStream } from "./store";
 import { useGenUiSurface } from "./useGenUiSurface";
 import { ClientAction } from "./types";
 
 export interface GenUiSurfaceProps {
-  /** A2UI surface id, e.g. `task:tasks/add-login.html`. */
+  /** A2UI surface id, e.g. `task:tasks/add-login.task.json`. */
   surfaceId: string;
   /** Run key (chat id) for live deltas. Defaults to the active chat. */
   runKey?: string;
@@ -29,10 +30,10 @@ export const GenUiSurface: React.FC<GenUiSurfaceProps> = ({
   height = 480,
   compact = true,
 }) => {
-  const effectiveRunKey = useMemo(
-    () => runKey ?? getRunKey(),
-    [runKey],
+  const lastChatId = useAgentStore(
+    (s) => s.lastChatIdByAgent[s.selectedAgent] || "",
   );
+  const effectiveRunKey = runKey ?? lastChatId;
   const model = useGenUiSurface(effectiveRunKey, surfaceId);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,9 +44,7 @@ export const GenUiSurface: React.FC<GenUiSurfaceProps> = ({
       .then((envs) => {
         if (!cancelled) model.applyMany(envs);
       })
-      .catch((e) =>
-        setError(e instanceof Error ? e.message : String(e)),
-      );
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     const unsub = subscribeStream(effectiveRunKey);
     return () => {
       cancelled = true;
@@ -54,7 +53,11 @@ export const GenUiSurface: React.FC<GenUiSurfaceProps> = ({
   }, [effectiveRunKey, surfaceId, model]);
 
   const onAction = useCallback(
-    (name: string, sourceComponentId: string, context: Record<string, unknown>) => {
+    (
+      name: string,
+      sourceComponentId: string,
+      context: Record<string, unknown>,
+    ) => {
       const action: ClientAction = {
         name,
         surfaceId,

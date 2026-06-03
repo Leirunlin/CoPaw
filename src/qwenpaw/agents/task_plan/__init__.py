@@ -1,11 +1,13 @@
-"""HTML-as-canonical-state task system.
+# -*- coding: utf-8 -*-
+"""JSON-canonical task plan system rendered through A2UI.
 
-Backs the ``/task-generator`` built-in skill. A task file is a minimal HTML
-shell holding the canonical task-doc JSON; the board renders natively in-app
-from that JSON via the generative-UI interface (see :mod:`.render`). This
-package owns the schema, parser, mutations, validators, and path-resolution
-policy shared between the skill CLI scripts and the genui action handler.
+Backs the ``/task-generator`` built-in skill. A task file is a plain JSON
+domain document; the board is a generated A2UI surface projected from that
+state. This package owns the schema, parser, mutations, validators, and
+path-resolution policy shared between the skill CLI scripts and the GenUI
+action handler.
 """
+
 from .manifest import (
     MANIFEST_NAME,
     manifest_path,
@@ -13,13 +15,13 @@ from .manifest import (
     remove_entry,
     upsert_entry,
 )
-from .parse import find_next_runnable, parse_task_doc
+from .parse import dump_task_doc, find_next_runnable, parse_task_doc
 from .paths import rel_to_workspace, resolve_task_path, tasks_dir
 from .schema import (
     DOC_VERSION,
-    MAX_HTML_BYTES,
-    TASK_DOC_SCRIPT_ID,
-    TASK_HTML_DIR,
+    MAX_TASK_BYTES,
+    TASK_DIR,
+    TASK_FILE_SUFFIX,
     TASK_ID_RE,
     Task,
     TaskDoc,
@@ -30,17 +32,15 @@ from .update import (
     add_task,
     delete_task,
     set_task_field,
-    set_task_state,
-    set_task_title,
     validate,
 )
 
 __all__ = [
     "DOC_VERSION",
     "MANIFEST_NAME",
-    "MAX_HTML_BYTES",
-    "TASK_DOC_SCRIPT_ID",
-    "TASK_HTML_DIR",
+    "MAX_TASK_BYTES",
+    "TASK_DIR",
+    "TASK_FILE_SUFFIX",
     "TASK_ID_RE",
     "Task",
     "TaskDoc",
@@ -48,6 +48,7 @@ __all__ = [
     "VALID_STATES",
     "add_task",
     "delete_task",
+    "dump_task_doc",
     "find_next_runnable",
     "manifest_path",
     "parse_task_doc",
@@ -56,8 +57,6 @@ __all__ = [
     "remove_entry",
     "resolve_task_path",
     "set_task_field",
-    "set_task_state",
-    "set_task_title",
     "tasks_dir",
     "upsert_entry",
     "validate",
