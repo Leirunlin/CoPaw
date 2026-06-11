@@ -40,10 +40,21 @@ export interface MarketSearchPayload {
   provider_pages: Record<string, number>;
   limit?: number;
   lang?: string;
+  category?: string;
+}
+
+export interface MarketCategory {
+  id: string;
+  label: string;
 }
 
 export const marketApi = {
   listMarketProviders: () => request<MarketProviderInfo[]>("/market/providers"),
+
+  listMarketCategories: (lang: string) =>
+    request<MarketCategory[]>(
+      `/market/categories?lang=${encodeURIComponent(lang)}`,
+    ),
 
   searchMarket: (payload: MarketSearchPayload) =>
     request<MarketSearchResponse>("/market/search", {
