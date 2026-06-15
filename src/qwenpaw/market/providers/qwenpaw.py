@@ -26,6 +26,7 @@ _MAX_PAGE_SIZE = 100
 class QwenPawProvider:
     key = "qwenpaw"
     label = "QwenPaw"
+    supports_browse = True
 
     def available(self) -> tuple[bool, str | None]:
         return True, None

@@ -26,6 +26,7 @@ class ProviderInfoSpec(BaseModel):
     label: str
     available: bool
     reason: str | None = None
+    supports_browse: bool = True
 
 
 class MarketResultSpec(BaseModel):
@@ -117,6 +118,7 @@ def _provider_info_to_spec(info: ProviderInfo) -> ProviderInfoSpec:
         label=info.label,
         available=info.available,
         reason=info.reason,
+        supports_browse=info.supports_browse,
     )
 
 

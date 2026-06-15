@@ -5,6 +5,8 @@ export interface MarketProviderInfo {
   label: string;
   available: boolean;
   reason: string | null;
+  /** False for search-only sources (e.g. ClawHub) with no browse listing. */
+  supports_browse: boolean;
 }
 
 export interface MarketResult {

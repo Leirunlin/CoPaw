@@ -249,6 +249,24 @@ function MarketPage() {
     [t],
   );
 
+  const browseHintLabel = useMemo(() => {
+    if (market.query.trim() || market.category) return "";
+    return market.providers
+      .filter(
+        (p) =>
+          p.available &&
+          !p.supports_browse &&
+          market.selectedProviderKeys.has(p.key),
+      )
+      .map((p) => p.label)
+      .join(", ");
+  }, [
+    market.query,
+    market.category,
+    market.providers,
+    market.selectedProviderKeys,
+  ]);
+
   return (
     <div className={styles.marketPage}>
       <PageHeader items={headerItems} />
@@ -285,6 +303,12 @@ function MarketPage() {
             aria-label={t("market.searchPlaceholder")}
           />
         </div>
+
+        {browseHintLabel && (
+          <div className={styles.browseHint}>
+            {t("market.browseHint", { providers: browseHintLabel })}
+          </div>
+        )}
 
         {market.globalError && (
           <div className={styles.errorRow}>{market.globalError}</div>

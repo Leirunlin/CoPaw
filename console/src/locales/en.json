@@ -2409,6 +2409,7 @@
     "providerUnavailable": "Provider unavailable",
     "noResults": "No results",
     "startTyping": "Type a query above to search the market",
+    "browseHint": "Pick a category or enter a keyword to browse skills in {{providers}}",
     "noDescription": "No description provided",
     "targetPool": "Pool",
     "targetWorkspace": "Workspace",

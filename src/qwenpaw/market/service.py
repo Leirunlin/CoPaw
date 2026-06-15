@@ -30,6 +30,7 @@ def list_providers() -> list[ProviderInfo]:
                 label=provider.label,
                 available=is_available,
                 reason=reason,
+                supports_browse=getattr(provider, "supports_browse", True),
             ),
         )
     return out
@@ -98,6 +99,15 @@ async def _run_one(
     native_code = routing["native_code"]
     if native_code is None and routing["search_term"] and not query.strip():
         effective_query = routing["search_term"]
+    # Search-only sources have no browse listing: an empty query would
+    # return nothing. Skip the wasted upstream call (the UI prompts the
+    # user to search) rather than fabricating a throwaway query.
+    if (
+        native_code is None
+        and not effective_query.strip()
+        and not getattr(provider, "supports_browse", True)
+    ):
+        return [], False, 0
     # Providers that don't declare `lang`/`category` kwargs ignore them.
     kwargs = _supported_kwargs(
         provider.search,

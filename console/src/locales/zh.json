@@ -2418,6 +2418,7 @@
     "providerUnavailable": "数据源不可用",
     "noResults": "没有找到结果",
     "startTyping": "在上方输入关键字以搜索技能市场",
+    "browseHint": "选择分类或输入关键词以浏览 {{providers}} 中的技能",
     "noDescription": "暂无描述",
     "targetPool": "技能池",
     "targetWorkspace": "工作区",
