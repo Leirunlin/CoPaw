@@ -11,6 +11,21 @@ import type {
 
 const DEBOUNCE_MS = 350;
 const PER_PROVIDER_LIMIT = 10;
+const PROVIDERS_STORAGE_KEY = "qwenpaw-market-providers";
+
+/** Restore the persisted provider selection */
+const resolveInitialProviders = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(PROVIDERS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((x): x is string => typeof x === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+};
 
 export interface MarketSearchState {
   providers: MarketProviderInfo[];
@@ -45,7 +60,7 @@ export function useMarketSearch(): MarketSearchState {
   const lang = i18n.language || "en";
   const [providers, setProviders] = useState<MarketProviderInfo[]>([]);
   const [selectedProviderKeys, setSelectedProviderKeys] = useState<Set<string>>(
-    new Set(),
+    resolveInitialProviders,
   );
   const [categories, setCategories] = useState<MarketCategory[]>([]);
   const [category, setCategoryState] = useState("");
@@ -93,11 +108,14 @@ export function useMarketSearch(): MarketSearchState {
         if (seq !== providersSeqRef.current) return;
         setProviders(list);
         const enabled = list.filter((p) => p.available).map((p) => p.key);
-        // Default to QwenPaw only; users opt into other providers.
-        const initial = enabled.includes("qwenpaw")
-          ? ["qwenpaw"]
-          : enabled.slice(0, 1);
-        setSelectedProviderKeys(new Set(initial));
+        setSelectedProviderKeys((prev) => {
+          const valid = [...prev].filter((k) => enabled.includes(k));
+          if (valid.length > 0) return new Set(valid);
+          const fallback = enabled.includes("qwenpaw")
+            ? ["qwenpaw"]
+            : enabled.slice(0, 1);
+          return new Set(fallback);
+        });
       })
       .catch((err: unknown) => {
         if (seq !== providersSeqRef.current) return;
@@ -140,6 +158,14 @@ export function useMarketSearch(): MarketSearchState {
       return next;
     });
   }, []);
+
+  // Persist the provider selection so it survives a page refresh.
+  useEffect(() => {
+    localStorage.setItem(
+      PROVIDERS_STORAGE_KEY,
+      JSON.stringify([...selectedProviderKeys]),
+    );
+  }, [selectedProviderKeys]);
 
   const applyResponse = useCallback(
     (resp: MarketSearchResponse, append: boolean) => {
