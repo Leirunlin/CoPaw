@@ -118,10 +118,14 @@ DEFAULT_HEARTBEAT_MDS = {
 }
 
 
-def _sync_default_workspace_skills(default_workspace: Path) -> int:
-    """Download pool skills into the default workspace, enabling only new ones.
+def _sync_default_workspace_skills(
+    default_workspace: Path,
+    *,
+    enable_all: bool = False,
+) -> int:
+    """Download pool skills into the default workspace and enable some of them.
 
-    Returns the number of newly enabled skills.
+    Returns the number of skills enabled.
     """
     from ..agents.skill_system import SkillPoolService, SkillService
 
@@ -136,7 +140,8 @@ def _sync_default_workspace_skills(default_workspace: Path) -> int:
         )
     enabled = 0
     for skill in service.list_all_skills():
-        if skill.name in prior_names:
+        if not enable_all and skill.name in prior_names:
+            # Preserve the user's existing enable/disable choice.
             continue
         result = service.enable_skill(skill.name)
         if result.get("success"):
@@ -392,7 +397,13 @@ def init_cmd(
         # has disabled.
         click.echo("Syncing pool skills into workspace...")
         synced = _sync_default_workspace_skills(default_workspace)
-        click.echo(f"✓ {synced} new skill(s) enabled.")
+        if synced:
+            click.echo(f"✓ {synced} new skill(s) enabled.")
+        else:
+            click.echo(
+                "✓ Skills already up to date "
+                "(kept your enable/disable choices).",
+            )
     elif write_config:
         # Interactive mode and config was written: prompt user
         skills_choice = prompt_choice(
@@ -402,9 +413,13 @@ def init_cmd(
         )
 
         if skills_choice == "all":
+            # Explicit "all": honor it and enable every skill.
             click.echo("Syncing pool skills into workspace...")
-            synced = _sync_default_workspace_skills(default_workspace)
-            click.echo(f"✓ Skills synced: {synced} new skill(s) enabled.")
+            synced = _sync_default_workspace_skills(
+                default_workspace,
+                enable_all=True,
+            )
+            click.echo(f"✓ {synced} skill(s) enabled.")
         elif skills_choice == "custom":
             configure_skills_interactive(
                 agent_id="default",
