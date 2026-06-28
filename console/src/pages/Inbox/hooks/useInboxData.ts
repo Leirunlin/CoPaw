@@ -49,6 +49,8 @@ const mapEventToPushMessage = (
       ? "memory"
       : event.source_type === "cron"
       ? "wechat"
+      : event.source_type === "skill_autoupdate"
+      ? "skill"
       : "email",
   channelName:
     event.source_type === "heartbeat"
@@ -57,6 +59,8 @@ const mapEventToPushMessage = (
       ? "Memory"
       : event.source_type === "cron"
       ? "Cron"
+      : event.source_type === "skill_autoupdate"
+      ? "Auto Update"
       : "System",
   title: event.title,
   content:
@@ -65,7 +69,10 @@ const mapEventToPushMessage = (
       : stripExecutionTimeText(event.body),
   sender: {
     userId: event.agent_id || "default",
-    username: resolveAgentName(event.agent_id || DEFAULT_AGENT_ID),
+    username:
+      event.source_type === "skill_autoupdate"
+        ? "Skill Pool"
+        : resolveAgentName(event.agent_id || DEFAULT_AGENT_ID),
   },
   createdAt: new Date((event.created_at || Date.now() / 1000) * 1000),
   read: Boolean(event.read),
@@ -131,7 +138,9 @@ export const useInboxData = () => {
     try {
       const res = await api.getInboxEvents({ limit: 200 });
       const events = [...(res?.events || [])].filter((event) =>
-        ["cron", "heartbeat", "memory"].includes(event.source_type),
+        ["cron", "heartbeat", "memory", "skill_autoupdate"].includes(
+          event.source_type,
+        ),
       );
       events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       const nextItems: PushMessage[] = events.map((event) =>

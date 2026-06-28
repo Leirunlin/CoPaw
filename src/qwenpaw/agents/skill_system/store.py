@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -233,6 +234,18 @@ def get_skill_mtime(skill_dir: Path) -> str:
         )
     except OSError:
         return ""
+
+
+def compute_skill_content_hash(skill_dir: Path) -> str:
+    """Return a SHA-256 hex digest of the skill's ``SKILL.md`` content."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return ""
+    try:
+        content = read_text_file_with_encoding_fallback(skill_md)
+    except OSError:
+        return ""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def _directory_tree(directory: Path) -> dict[str, Any]:
