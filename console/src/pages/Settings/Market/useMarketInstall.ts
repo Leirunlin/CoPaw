@@ -228,9 +228,6 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
     [runQueue, updateItem],
   );
 
-  // Drop every finished row (completed/failed/cancelled), including stuck
-  // error messages. Only items still in flight (queued/installing) are kept
-  // so we don't orphan a running install.
   const clearFinished = useCallback(() => {
     setQueue(
       queueRef.current.filter(
