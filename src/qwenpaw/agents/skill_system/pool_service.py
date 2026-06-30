@@ -19,7 +19,7 @@ from .registry import (
 from .store import (
     build_import_conflict,
     build_skill_metadata,
-    compute_skill_content_hash,
+    compute_skill_md_hash,
     copy_skill_dir,
     default_pool_manifest,
     default_workspace_manifest,
@@ -1206,7 +1206,7 @@ def _detect_changed_auto_update_skills(
         skill_dir = resolve_pool_skill_dir(name)
         if skill_dir is None:
             continue
-        current_hash = compute_skill_content_hash(skill_dir)
+        current_hash = compute_skill_md_hash(skill_dir)
         if not current_hash:
             continue
         prior_hash = str(entry.get("auto_update_synced_hash", "") or "")

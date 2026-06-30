@@ -237,7 +237,7 @@ def get_skill_mtime(skill_dir: Path) -> str:
         return ""
 
 
-def compute_skill_content_hash(skill_dir: Path) -> str:
+def compute_skill_md_hash(skill_dir: Path) -> str:
     """Return a SHA-256 hex digest of the skill's ``SKILL.md`` content."""
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.exists():

@@ -138,7 +138,10 @@ async def _follow_auto_update(skill_name: str | None = None) -> None:
     only skills that actually changed are propagated.
     """
     try:
-        result = run_pool_auto_update_sync(skill_name=skill_name)
+        result = await asyncio.to_thread(
+            run_pool_auto_update_sync,
+            skill_name=skill_name,
+        )
         await post_auto_update_inbox(result)
     except Exception:
         logger.warning("auto-update follow-up failed", exc_info=True)

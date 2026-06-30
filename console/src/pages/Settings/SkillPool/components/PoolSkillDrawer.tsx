@@ -161,7 +161,9 @@ export function PoolSkillDrawer({
                 <Select
                   mode="multiple"
                   style={{ width: "100%" }}
-                  value={autoUpdateTargets}
+                  value={autoUpdateTargets.filter((id) =>
+                    workspaces.some((ws) => ws.agent_id === id),
+                  )}
                   onChange={(value) =>
                     onAutoUpdateTargetsChange?.(value as string[])
                   }
