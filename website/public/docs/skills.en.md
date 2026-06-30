@@ -69,8 +69,8 @@ Pool-side operations:
   name that already exists, QwenPaw returns a conflict instead of silently
   overwriting. The UI/API includes a suggested renamed target so you can retry
   with that name.
-- **Auto update:** Once enabled for a skill, any change to its pool content is
-  pushed to the relevant workspaces automatically (see **Auto update** below).
+- **Auto sync:** Once enabled for a skill, any change to its pool content is
+  pushed to the relevant workspaces automatically (see **Auto sync** below).
 
 Adding skills to the pool:
 
@@ -331,9 +331,9 @@ This skill is used for…
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
 
-### Auto update (Skill Pool & Workspace)
+### Auto sync (Skill Pool & Workspace)
 
-Turn on **Auto update** for a pool skill and any change to its pool content is
+Turn on **Auto sync** for a pool skill and any change to its pool content is
 synced to the relevant workspaces automatically — no manual broadcast needed.
 
 - **How to enable:** Toggle it on the skill card in **Settings → Skill Pool**

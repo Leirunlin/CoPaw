@@ -87,7 +87,7 @@ const mapEventToPushMessage = (
       : event.source_type === "cron"
       ? "Cron"
       : event.source_type === "skill_autoupdate"
-      ? "Auto Update"
+      ? "Auto Sync"
       : "System",
   title:
     event.source_type === "skill_autoupdate"
