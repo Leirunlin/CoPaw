@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import frontmatter
+import yaml
 
 from ...exceptions import SkillsError
 from ...security.skill_scanner import scan_skill_directory
@@ -850,7 +851,12 @@ def read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
 
 
 def validate_skill_content(content: str) -> tuple[str, str]:
-    post = frontmatter.loads(content)
+    try:
+        post = frontmatter.loads(content)
+    except yaml.YAMLError as exc:
+        raise SkillsError(
+            message=f"SKILL.md frontmatter is not valid YAML: {exc}",
+        ) from exc
     skill_name = str(post.get("name") or "").strip()
     skill_description = str(post.get("description") or "").strip()
     if not skill_name or not skill_description:
