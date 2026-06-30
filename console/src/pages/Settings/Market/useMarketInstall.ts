@@ -228,11 +228,16 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
     [runQueue, updateItem],
   );
 
-  // Only drop the green "completed" rows; keep failed/cancelled so the user
-  // can see what went wrong and decide whether to retry.
-  const clearCompleted = useCallback(() => {
-    setQueue(queueRef.current.filter((it) => it.status !== "completed"));
+  // Drop every finished row (completed/failed/cancelled), including stuck
+  // error messages. Only items still in flight (queued/installing) are kept
+  // so we don't orphan a running install.
+  const clearFinished = useCallback(() => {
+    setQueue(
+      queueRef.current.filter(
+        (it) => it.status === "queued" || it.status === "installing",
+      ),
+    );
   }, [setQueue]);
 
-  return { queue, enqueue, cancel, retry, clearCompleted };
+  return { queue, enqueue, cancel, retry, clearFinished };
 }
