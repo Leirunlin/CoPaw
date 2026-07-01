@@ -2598,6 +2598,7 @@
   "market": {
     "searchPlaceholder": "Buscar habilidades em várias plataformas",
     "categoryAll": "Todos",
+    "categoryPlaceholder": "Buscar categoria",
     "searchResult": "{{count}} habilidades encontradas para \"{{keyword}}\"",
     "providerUnavailable": "Provedor indisponível",
     "noResults": "Nenhum resultado",
@@ -2629,6 +2630,7 @@
     },
     "stats": {
       "downloads": "Downloads",
+      "stars": "Estrelas",
       "installs": "Instalações",
       "likes": "Curtidas",
       "views": "Visualizações",

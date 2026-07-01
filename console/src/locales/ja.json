@@ -2550,6 +2550,7 @@
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",
     "categoryAll": "すべて",
+    "categoryPlaceholder": "カテゴリを検索",
     "searchResult": "「{{keyword}}」に一致するスキルが {{count}} 件見つかりました",
     "providerUnavailable": "ソースが利用できません",
     "noResults": "結果が見つかりません",
@@ -2581,6 +2582,7 @@
     },
     "stats": {
       "downloads": "ダウンロード数",
+      "stars": "スター",
       "installs": "インストール数",
       "likes": "いいね数",
       "views": "閲覧数",

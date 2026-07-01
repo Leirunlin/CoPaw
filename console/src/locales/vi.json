@@ -564,12 +564,14 @@
     },
     "stats": {
       "downloads": "Lượt tải",
+      "stars": "Sao",
       "installs": "Lượt cài đặt",
       "likes": "Lượt thích",
       "views": "Lượt xem",
       "category": "Danh mục",
       "updatedAt": "Cập nhật"
-    }
+    },
+    "categoryPlaceholder": "Tìm danh mục"
   },
   "agentStats": {
     "title": "Thống kê Agent",

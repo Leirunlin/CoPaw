@@ -2565,6 +2565,7 @@
   "market": {
     "searchPlaceholder": "Поиск навыков по платформам",
     "categoryAll": "Все",
+    "categoryPlaceholder": "Поиск категории",
     "searchResult": "Найдено навыков по запросу \"{{keyword}}\": {{count}}",
     "providerUnavailable": "Источник недоступен",
     "noResults": "Ничего не найдено",
@@ -2596,6 +2597,7 @@
     },
     "stats": {
       "downloads": "Скачивания",
+      "stars": "Звёзды",
       "installs": "Установки",
       "likes": "Лайки",
       "views": "Просмотры",

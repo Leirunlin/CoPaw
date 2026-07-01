@@ -1013,6 +1013,7 @@
   "market": {
     "searchPlaceholder": "Cari skill di berbagai platform",
     "categoryAll": "Semua",
+    "categoryPlaceholder": "Cari kategori",
     "searchResult": "Ditemukan {{count}} skill yang cocok dengan \"{{keyword}}\"",
     "providerUnavailable": "Sumber tidak tersedia",
     "noResults": "Tidak ada hasil",
@@ -1044,6 +1045,7 @@
     },
     "stats": {
       "downloads": "Unduhan",
+      "stars": "Bintang",
       "installs": "Instalasi",
       "likes": "Suka",
       "views": "Tampilan",

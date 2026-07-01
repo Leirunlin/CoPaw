@@ -2677,6 +2677,7 @@
   "market": {
     "searchPlaceholder": "Search skills across platforms",
     "categoryAll": "All",
+    "categoryPlaceholder": "Search category",
     "searchResult": "Found {{count}} skills matching \"{{keyword}}\"",
     "providerUnavailable": "Provider unavailable",
     "noResults": "No results",
@@ -2708,6 +2709,7 @@
     },
     "stats": {
       "downloads": "Downloads",
+      "stars": "Stars",
       "installs": "Installs",
       "likes": "Likes",
       "views": "Views",
