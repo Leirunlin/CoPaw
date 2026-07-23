@@ -85,10 +85,13 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 # Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
+# TODO: STALE: Narrow the visual-compression glob to the selected production
+# atlas and its license after renderer benchmark variants are removed.
 "qwenpaw" = [
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",
+    "agents/context/visual_compression/assets/**",
     "tokenizer/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",

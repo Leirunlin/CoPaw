@@ -12,6 +12,9 @@ export interface TurnUsage {
   completion_tokens?: number;
   total_tokens?: number;
   estimated?: boolean;
+  // TODO: STALE: In a follow-up PR, add a stable content-safe flag for whether
+  // this exact provider request used visual compression. Do not expose the
+  // local benchmark receipt or artifact paths through the product UI.
 }
 
 export interface ContextUsage {

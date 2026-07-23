@@ -1,0 +1,831 @@
+# -*- coding: utf-8 -*-
+"""Deterministic pxpipe-compatible text layout and PNG rendering."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import re
+import struct
+import sys
+import zlib
+from array import array
+from dataclasses import dataclass, field, replace
+from functools import lru_cache
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+from ..config import (
+    PRODUCTION_RECIPE,
+    ROLE_MARK_ASSISTANT,
+    ROLE_MARK_USER,
+    RenderProfile,
+    resolve_render_profile,
+    resolve_render_variant,
+)
+
+RENDERER_ID = PRODUCTION_RECIPE.renderer_version
+READABLE_CHARS_PER_IMAGE = PRODUCTION_RECIPE.readable_chars_per_image
+
+
+def _utf16_code_units(text: str) -> int:
+    """Count UTF-16 code units to preserve pxpipe layout semantics."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+@dataclass(frozen=True)
+class RenderedPage:
+    """Immutable geometry and bytes returned by the renderer."""
+
+    png: bytes
+    width: int
+    height: int
+    source_chars: int
+    dropped_chars: int = 0
+    dropped_codepoints: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.png).hexdigest()
+
+
+@dataclass(frozen=True)
+class _DenseGrayAtlas:
+    """Decoded pxpipe grayscale glyph atlas."""
+
+    ranks: dict[int, int]
+    offsets: array
+    wide_flags: bytes
+    pixels: bytes
+    cell_width: int = 5
+    cell_height: int = 8
+
+
+_ASSET_ROOT = Path(__file__).resolve().parent.parent / "assets"
+_DENSE_ATLAS_SOURCE = _ASSET_ROOT / "atlas-gray.ts"
+# TODO: STALE: These fonts and the alternate atlas support only temporary
+# renderer calibration variants. The production candidate reads the Spleen
+# 5x8 grayscale atlas above and does not load font files at runtime.
+_PRIMARY_FONT = _ASSET_ROOT / "JetBrainsMono-Regular.ttf"
+_DENSE_FONT = _ASSET_ROOT / "Spleen-5x8.otb"
+_FALLBACK_FONT = _ASSET_ROOT / "Unifont-16.0.04.otf"
+_JBM10_DENSE_ATLAS_SOURCE = _ASSET_ROOT / "atlas-gray-jbmono10.ts"
+_INVERT_BYTES = bytes.maketrans(bytes(range(256)), bytes(reversed(range(256))))
+_INK_PALETTES: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
+    # TODO: STALE: Color palettes are renderer-format ablations.
+    "amber": ((0, 0, 0), (255, 191, 48)),
+    "blue": ((255, 255, 255), (24, 72, 168)),
+}
+
+
+def render_asset_metadata(
+    profile: RenderProfile,
+    variant_name: str,
+) -> dict[str, str | None]:
+    """Describe TODO: STALE benchmark font/atlas provenance."""
+    variant = resolve_render_variant(variant_name)
+    return {
+        "primary_font": str(
+            _DENSE_FONT
+            # TODO: STALE: Remove the pxpipe font-recipe branch with the
+            # alternate benchmark variants.
+            if variant.font_recipe == "pxpipe" and profile.font_size == 8
+            else _PRIMARY_FONT,
+        ),
+        "fallback_font": str(_FALLBACK_FONT),
+        "atlas_source": (
+            str(_JBM10_DENSE_ATLAS_SOURCE)
+            if variant.font_recipe == "jetbrains_mono_10"
+            else str(_DENSE_ATLAS_SOURCE)
+            if profile.font_size == 8
+            else None
+        ),
+    }
+
+
+@lru_cache(maxsize=2)
+def _load_gray_atlas(
+    source_path: Path,
+    cell_width: int,
+    cell_height: int,
+) -> _DenseGrayAtlas:
+    """Decode a generated pxpipe atlas without Node at runtime."""
+    source = source_path.read_text(encoding="utf-8")
+
+    def blob(name: str) -> bytes:
+        match = re.search(rf'const {name}_B64\s*=\s*"([^"]*)"', source)
+        if match is None:
+            raise ValueError(f"missing {name}_B64 in {source_path}")
+        return base64.b64decode(match.group(1))
+
+    codepoints = array("I")
+    codepoints.frombytes(blob("GRAY_CODEPOINTS"))
+    offsets = array("I")
+    offsets.frombytes(blob("GRAY_OFFSETS"))
+    if sys.byteorder != "little":
+        codepoints.byteswap()
+        offsets.byteswap()
+    return _DenseGrayAtlas(
+        ranks={codepoint: rank for rank, codepoint in enumerate(codepoints)},
+        offsets=offsets,
+        wide_flags=blob("GRAY_WIDE_FLAGS"),
+        pixels=blob("GRAY_PIXELS"),
+        cell_width=cell_width,
+        cell_height=cell_height,
+    )
+
+
+def _load_dense_gray_atlas() -> _DenseGrayAtlas:
+    """Load the byte-identical pxpipe production Spleen 5x8 atlas."""
+    return _load_gray_atlas(_DENSE_ATLAS_SOURCE, 5, 8)
+
+
+def _atlas_for_profile(profile: RenderProfile) -> _DenseGrayAtlas:
+    # TODO: STALE: The alternate atlas branch is a renderer ablation.
+    if profile.name.endswith("-jbmono10"):
+        return _load_gray_atlas(_JBM10_DENSE_ATLAS_SOURCE, 6, 11)
+    return _load_dense_gray_atlas()
+
+
+@lru_cache(maxsize=16)
+def _load_fonts(
+    size: int,
+) -> tuple[ImageFont.ImageFont, ImageFont.ImageFont]:
+    """Load fonts for TODO: STALE non-atlas render profiles."""
+    primary: ImageFont.ImageFont | None = None
+    fallback: ImageFont.ImageFont | None = None
+    primary_candidates = (
+        (str(_DENSE_FONT), str(_PRIMARY_FONT))
+        if size == 8
+        else (str(_PRIMARY_FONT),)
+    )
+    for name in (
+        *primary_candidates,
+        "JetBrainsMono-Regular.ttf",
+        "DejaVuSansMono.ttf",
+        "LiberationMono-Regular.ttf",
+    ):
+        try:
+            primary = ImageFont.truetype(name, size=size)
+            break
+        except OSError:
+            continue
+    for name in (str(_FALLBACK_FONT), "Arial Unicode.ttf", "DejaVuSans.ttf"):
+        try:
+            fallback = ImageFont.truetype(name, size=size)
+            break
+        except OSError:
+            continue
+    try:
+        default = ImageFont.load_default(size=size)
+    except TypeError:  # Pillow < 10 compatibility
+        default = ImageFont.load_default()
+    return primary or default, fallback or primary or default
+
+
+def _char_cells(char: str) -> int:
+    if not char:
+        return 0
+    atlas = _load_dense_gray_atlas()
+    rank = atlas.ranks.get(ord(char))
+    return 2 if rank is not None and atlas.wide_flags[rank] == 1 else 1
+
+
+def _is_escape_exempt(codepoint: int) -> bool:
+    if codepoint < 0x20 or 0x7F <= codepoint <= 0x9F:
+        return True
+    if 0x0300 <= codepoint <= 0x036F:
+        return True
+    if codepoint in {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF}:
+        return True
+    if 0xFE00 <= codepoint <= 0xFE0F:
+        return True
+    return 0xE0100 <= codepoint <= 0xE01EF
+
+
+def _escape_missing_glyphs(line: str) -> str:
+    atlas = _load_dense_gray_atlas()
+    out: list[str] | None = None
+    for index, char in enumerate(line):
+        codepoint = ord(char)
+        if codepoint not in atlas.ranks and not _is_escape_exempt(codepoint):
+            if out is None:
+                out = list(line[:index])
+            out.append(f"[U+{codepoint:X}]")
+        elif out is not None:
+            out.append(char)
+    return line if out is None else "".join(out)
+
+
+def _expand_tabs_visible(line: str) -> str:
+    if "\t" not in line:
+        return line
+    out: list[str] = []
+    col = 0
+    for char in line:
+        if char == "\t":
+            span = 4 - (col % 4)
+            out.append("→")
+            if span > 1:
+                out.append(" " * (span - 1))
+            col += span
+        else:
+            out.append(char)
+            col += _char_cells(char)
+    return "".join(out)
+
+
+def _wrap_line(line: str, max_cols: int) -> list[str]:
+    if not line:
+        return [""]
+    out: list[str] = []
+    current = ""
+    used_cols = 0
+    prepared = _escape_missing_glyphs(_expand_tabs_visible(line))
+    for char in prepared:
+        cells = _char_cells(char)
+        if used_cols + cells > max_cols:
+            out.append(current)
+            current = char
+            used_cols = cells
+        else:
+            current += char
+            used_cols += cells
+    if current:
+        out.append(current)
+    return out
+
+
+def _minify_for_render(text: str) -> str:
+    stripped = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
+    return re.sub(r"\n{4,}", "\n\n\n", stripped)
+
+
+def _visual_lines(
+    text: str,
+    profile: RenderProfile,
+    columns: int | None = None,
+) -> list[str]:
+    max_cols = columns or max(
+        1,
+        (profile.width - 2 * profile.padding) // profile.cell_width,
+    )
+    lines: list[str] = []
+    for raw in _minify_for_render(text).split("\n"):
+        lines.extend(_wrap_line(raw, max_cols))
+    return lines or [""]
+
+
+def measure_content_columns(
+    text: str,
+    profile_name: str = PRODUCTION_RECIPE.render_profile.name,
+    render_variant: str = PRODUCTION_RECIPE.render_variant.name,
+) -> int:
+    """Return pxpipe's widest prepared line, capped by the profile width."""
+    profile = resolve_render_profile(profile_name, render_variant)
+    cap = max(
+        1,
+        (profile.width - 2 * profile.padding) // profile.cell_width,
+    )
+    widest = 1
+    for raw in text.split("\n"):
+        prepared = _escape_missing_glyphs(_expand_tabs_visible(raw))
+        width = sum(_char_cells(char) for char in prepared)
+        widest = max(widest, width)
+        if widest >= cap:
+            return cap
+    return min(cap, widest)
+
+
+def _profile_with_columns(
+    profile: RenderProfile,
+    columns: int | None,
+) -> tuple[RenderProfile, int]:
+    max_columns = max(
+        1,
+        (profile.width - 2 * profile.padding) // profile.cell_width,
+    )
+    if columns is None:
+        return profile, max_columns
+    actual_columns = max(1, min(max_columns, columns))
+    width = 2 * profile.padding + actual_columns * profile.cell_width
+    return replace(profile, width=width), actual_columns
+
+
+def render_rows_per_page(profile: RenderProfile, columns: int) -> int:
+    hard_rows = max(
+        1,
+        (profile.max_height - 2 * profile.padding) // profile.line_height,
+    )
+    readable_rows = max(
+        1,
+        READABLE_CHARS_PER_IMAGE // max(1, int(columns)),
+    )
+    return min(hard_rows, readable_rows)
+
+
+def _split_visual_pages(
+    lines: list[str],
+    max_lines: int,
+    max_chars: int = READABLE_CHARS_PER_IMAGE,
+) -> list[list[str]]:
+    """Port pxpipe's joint row-count and serialized-char page bound."""
+    pages: list[list[str]] = []
+    current: list[str] = []
+    current_chars = 0
+    line_limit = max(1, max_lines)
+    char_limit = max(1, max_chars)
+    for line in lines:
+        line_chars = _utf16_code_units(line) + int(bool(current))
+        if current and (
+            len(current) >= line_limit
+            or current_chars + line_chars > char_limit
+        ):
+            pages.append(current)
+            current = []
+            current_chars = 0
+        current.append(line)
+        current_chars += _utf16_code_units(line) + int(len(current) > 1)
+    if current:
+        pages.append(current)
+    return pages or [[]]
+
+
+def _page_render_lines(
+    page_lines: list[str],
+    profile: RenderProfile,
+    columns: int,
+    max_lines: int,
+) -> list[str]:
+    chunk = "\n".join(page_lines)
+    return _visual_lines(chunk, profile, columns)[: max(1, max_lines)]
+
+
+def reflow_for_render(text: str) -> str:
+    """Port pxpipe R3 reflow: compact and join hard breaks with ``↵``."""
+    normalized = _minify_for_render(text).replace("↵", "⏎")
+    return "↵".join(
+        _expand_tabs_visible(line) for line in normalized.split("\n")
+    )
+
+
+def _preserve_newlines_for_render(text: str) -> str:
+    """TODO: STALE newline-preserving layout ablation."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = "\n".join(
+        _expand_tabs_visible(line.rstrip(" \t"))
+        for line in normalized.split("\n")
+    )
+    return normalized.replace("↵", "⏎")
+
+
+def prepare_render_text(text: str, render_variant: str) -> str:
+    variant = resolve_render_variant(render_variant)
+    # TODO: STALE: Freeze this to ``reflow_for_render`` with v0_pxpipe.
+    if variant.layout == "preserve_newlines":
+        return _preserve_newlines_for_render(text)
+    return reflow_for_render(text)
+
+
+def page_count_for_text(
+    text: str,
+    profile_name: str,
+    render_variant: str = PRODUCTION_RECIPE.render_variant.name,
+    *,
+    columns: int | None = None,
+) -> int:
+    profile = resolve_render_profile(profile_name, render_variant)
+    profile, actual_columns = _profile_with_columns(profile, columns)
+    per_page = render_rows_per_page(profile, actual_columns)
+    return len(
+        _split_visual_pages(
+            _visual_lines(text, profile, actual_columns),
+            per_page,
+        ),
+    )
+
+
+def estimate_text_pages(
+    text: str,
+    profile_name: str,
+    render_variant: str = PRODUCTION_RECIPE.render_variant.name,
+    *,
+    columns: int | None = None,
+) -> list[RenderedPage]:
+    """Return geometry-only pages for a gate without rasterizing PNG bytes."""
+    profile = resolve_render_profile(profile_name, render_variant)
+    profile, actual_columns = _profile_with_columns(profile, columns)
+    lines = _visual_lines(text, profile, actual_columns)
+    per_page = render_rows_per_page(profile, actual_columns)
+    pages: list[RenderedPage] = []
+    for page_lines in _split_visual_pages(lines, per_page):
+        rendered_lines = _page_render_lines(
+            page_lines,
+            profile,
+            actual_columns,
+            per_page,
+        )
+        count = len(rendered_lines)
+        height = max(
+            profile.padding * 2 + profile.line_height,
+            profile.padding * 2 + count * profile.line_height,
+        )
+        pages.append(
+            RenderedPage(
+                png=b"",
+                width=profile.width,
+                height=height,
+                source_chars=0,
+            ),
+        )
+    return pages
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    payload = kind + data
+    return (
+        struct.pack(">I", len(data))
+        + payload
+        + struct.pack(">I", zlib.crc32(payload) & 0xFFFFFFFF)
+    )
+
+
+def _encode_png(
+    pixels: bytes,
+    width: int,
+    height: int,
+    *,
+    channels: int,
+) -> bytes:
+    """Encode a deterministic PNG with no row filters and one IDAT chunk."""
+    if len(pixels) != width * height * channels:
+        raise ValueError("invalid framebuffer length")
+    stride = width * channels
+    raw = b"".join(
+        b"\x00" + pixels[row * stride : (row + 1) * stride]
+        for row in range(height)
+    )
+    color_type = 0 if channels == 1 else 2
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
+    return b"".join(
+        (
+            b"\x89PNG\r\n\x1a\n",
+            _png_chunk(b"IHDR", ihdr),
+            _png_chunk(b"IDAT", zlib.compress(raw, level=6)),
+            _png_chunk(b"IEND", b""),
+        ),
+    )
+
+
+def _encode_gray_png(pixels: bytes, width: int, height: int) -> bytes:
+    return _encode_png(pixels, width, height, channels=1)
+
+
+def _encode_rgb_png(pixels: bytes, width: int, height: int) -> bytes:
+    return _encode_png(pixels, width, height, channels=3)
+
+
+def _draw_grid_line(
+    draw: ImageDraw.ImageDraw,
+    line: str,
+    *,
+    x: int,
+    y: int,
+    profile: RenderProfile,
+    primary: ImageFont.ImageFont,
+    fallback: ImageFont.ImageFont,
+) -> None:
+    """Draw a TODO: STALE non-atlas profile on a deterministic grid."""
+    col = 0
+    run = ""
+    run_col = 0
+    run_font = primary
+
+    def flush() -> None:
+        nonlocal run
+        if run:
+            draw.text(
+                (x + run_col * profile.cell_width, y),
+                run,
+                fill=0,
+                font=run_font,
+            )
+            run = ""
+
+    for char in line:
+        chosen = primary if ord(char) < 128 else fallback
+        cells = _char_cells(char)
+        if run and chosen is not run_font:
+            flush()
+        if not run:
+            run_col = col
+            run_font = chosen
+        run += char
+        col += cells
+    flush()
+
+
+def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
+    lines: list[str],
+    profile: RenderProfile,
+    slot_lines: list[str] | None = None,
+    atlas_mode: str = "gray",
+) -> tuple[Image.Image, int, dict[str, int]]:
+    """Render with pxpipe's bit or grayscale atlas behavior."""
+    if atlas_mode not in {"bit", "gray"}:
+        raise ValueError(f"unknown atlas mode: {atlas_mode}")
+    atlas = _atlas_for_profile(profile)
+    height = max(
+        profile.padding * 2 + profile.line_height,
+        profile.padding * 2 + len(lines) * profile.line_height,
+    )
+    framebuffer = bytearray(b"\xff") * (profile.width * height)
+    role_mask = (
+        bytearray(profile.width * height) if slot_lines is not None else None
+    )
+    dropped = 0
+    dropped_codepoints: dict[str, int] = {}
+    for row, line in enumerate(lines):
+        slot_line = (
+            slot_lines[row] if slot_lines and row < len(slot_lines) else ""
+        )
+        col = 0
+        base_y = profile.padding + row * profile.line_height
+        for char_index, char in enumerate(line):
+            codepoint = ord(char)
+            glyph_atlas = atlas
+            rank = glyph_atlas.ranks.get(codepoint)
+            glyph_y_offset = 0
+            if rank is None and profile.name.endswith("-jbmono10"):
+                # TODO: STALE: Alternate-font fallback belongs only to the
+                # temporary jbmono10 renderer ablation.
+                # Match pxpipe's alternate-font contract: JetBrains Mono is
+                # primary, with the full Spleen/Unifont atlas as fallback.
+                glyph_atlas = _load_dense_gray_atlas()
+                rank = glyph_atlas.ranks.get(codepoint)
+                glyph_y_offset = profile.line_height - glyph_atlas.cell_height
+            fallback_cells = _char_cells(char)
+            if rank is None:
+                dropped += 1
+                key = f"U+{codepoint:04X}"
+                dropped_codepoints[key] = dropped_codepoints.get(key, 0) + 1
+                col += fallback_cells
+                continue
+            wide = glyph_atlas.wide_flags[rank] == 1
+            cells = 2 if wide else 1
+            src_width = cells * glyph_atlas.cell_width
+            src_offset = glyph_atlas.offsets[rank]
+            base_x = profile.padding + col * profile.cell_width
+            for glyph_y in range(glyph_atlas.cell_height):
+                dst = (
+                    base_y + glyph_y_offset + glyph_y
+                ) * profile.width + base_x
+                src = src_offset + glyph_y * src_width
+                for glyph_x in range(src_width):
+                    coverage = glyph_atlas.pixels[src + glyph_x]
+                    if coverage:
+                        if atlas_mode == "bit":
+                            coverage = 255
+                        pixel = 255 - coverage
+                        index = dst + glyph_x
+                        # Match Uint8Array's linear indexing in pxpipe. A
+                        # caller that explicitly forces fewer columns than a
+                        # wide glyph occupies can spill the glyph's final
+                        # pixels into the next scanline; writes beyond the
+                        # complete framebuffer are ignored. Production width
+                        # measurement prevents this edge, but the primitive
+                        # contract remains byte-for-byte compatible.
+                        if index >= len(framebuffer):
+                            continue
+                        if pixel < framebuffer[index]:
+                            framebuffer[index] = pixel
+                        if role_mask is not None and char_index < len(
+                            slot_line,
+                        ):
+                            mark = slot_line[char_index]
+                            if mark == ROLE_MARK_USER:
+                                role_mask[index] = 1
+                            elif mark == ROLE_MARK_ASSISTANT:
+                                role_mask[index] = 2
+            col += cells
+    if role_mask is not None and any(role_mask):
+        rgb = bytearray(profile.width * height * 3)
+        palette = ((20, 120, 50), (30, 70, 180))
+        for index, gray in enumerate(framebuffer):
+            slot = role_mask[index]
+            if slot:
+                coverage = 255 - gray
+                color = palette[slot - 1]
+                # JavaScript Math.round parity (positive values): pxpipe
+                # alpha-blends role ink with round(), not truncation.
+                rgb[index * 3] = (
+                    255 - (coverage * (255 - color[0]) + 127) // 255
+                )
+                rgb[index * 3 + 1] = (
+                    255 - (coverage * (255 - color[1]) + 127) // 255
+                )
+                rgb[index * 3 + 2] = (
+                    255 - (coverage * (255 - color[2]) + 127) // 255
+                )
+            else:
+                rgb[index * 3 : index * 3 + 3] = bytes((gray, gray, gray))
+        image = Image.frombytes("RGB", (profile.width, height), bytes(rgb))
+    else:
+        image = Image.frombytes(
+            "L",
+            (profile.width, height),
+            bytes(framebuffer),
+        )
+    return (
+        image,
+        dropped,
+        dropped_codepoints,
+    )
+
+
+def _render_text_pages_uncached(  # pylint: disable=R0912
+    text: str,
+    profile_name: str = PRODUCTION_RECIPE.render_profile.name,
+    max_pages: int | None = None,
+    slot_text: str | None = None,
+    render_variant: str = PRODUCTION_RECIPE.render_variant.name,
+    columns: int | None = None,
+    atlas_mode: str = "gray",
+) -> list[RenderedPage]:
+    """Render text into deterministic, content-height PNG pages."""
+    profile = resolve_render_profile(profile_name, render_variant)
+    profile, actual_columns = _profile_with_columns(profile, columns)
+    variant = resolve_render_variant(render_variant)
+    lines = _visual_lines(text, profile, actual_columns)
+    slot_lines = (
+        _visual_lines(slot_text, profile, actual_columns)
+        if slot_text is not None
+        else None
+    )
+    if slot_lines is not None and len(slot_lines) != len(lines):
+        slot_lines = None
+    per_page = render_rows_per_page(profile, actual_columns)
+    laid_out_pages = _split_visual_pages(lines, per_page)
+    page_count = len(laid_out_pages)
+    if max_pages is not None:
+        # Never remove original text unless every rendered row fits. A page
+        # cap is a pass-through gate, not a truncation mechanism.
+        if page_count > max(0, max_pages):
+            return []
+    dense_atlas = (
+        profile.font_size == 8 and profile.cell_width == 5
+    ) or profile.name.endswith("-jbmono10")
+    primary = fallback = None
+    if not dense_atlas:
+        primary, fallback = _load_fonts(profile.font_size)
+    pages: list[RenderedPage] = []
+    line_cursor = 0
+    for chunk in laid_out_pages:
+        initial_slot_chunk = (
+            slot_lines[line_cursor : line_cursor + len(chunk)]
+            if slot_lines is not None
+            else None
+        )
+        line_cursor += len(chunk)
+        render_lines = _page_render_lines(
+            chunk,
+            profile,
+            actual_columns,
+            per_page,
+        )
+        slot_chunk = (
+            _page_render_lines(
+                initial_slot_chunk,
+                profile,
+                actual_columns,
+                per_page,
+            )
+            if initial_slot_chunk is not None
+            else None
+        )
+        if slot_chunk is not None and len(slot_chunk) != len(render_lines):
+            slot_chunk = None
+        height = max(
+            profile.padding * 2 + profile.line_height,
+            profile.padding * 2 + len(render_lines) * profile.line_height,
+        )
+        if dense_atlas:
+            (
+                image,
+                dropped_chars,
+                dropped_codepoints,
+            ) = _render_dense_atlas_page(
+                render_lines,
+                profile,
+                slot_chunk,
+                atlas_mode,
+            )
+        else:
+            dropped_chars = 0
+            dropped_codepoints = {}
+            image = Image.new("L", (profile.width, height), 255)
+            draw = ImageDraw.Draw(image)
+            for row, line in enumerate(render_lines):
+                _draw_grid_line(
+                    draw,
+                    line,
+                    x=profile.padding,
+                    y=profile.padding + row * profile.line_height,
+                    profile=profile,
+                    primary=primary,
+                    fallback=fallback,
+                )
+        # TODO: STALE: Weight, color, and polarity branches below implement
+        # controlled renderer-format ablations. The v0 production candidate
+        # skips all three branches.
+        if variant.weight == "bold":
+            # Expand dark glyph coverage before any polarity transform.  A
+            # deterministic 3x3 minimum filter behaves like a one-pixel bold
+            # stroke for both grayscale and RGB role-colored pages.
+            image = image.filter(ImageFilter.MinFilter(3))
+        if variant.ink_color in _INK_PALETTES:
+            background, ink = _INK_PALETTES[variant.ink_color]
+            gray = image.convert("L").tobytes()
+            rgb = bytearray(len(gray) * 3)
+            for index, value in enumerate(gray):
+                coverage = 255 - value
+                for channel in range(3):
+                    rgb[index * 3 + channel] = (
+                        background[channel] * (255 - coverage)
+                        + ink[channel] * coverage
+                        + 127
+                    ) // 255
+            image = Image.frombytes("RGB", image.size, bytes(rgb))
+        elif variant.polarity == "dark":
+            image = Image.frombytes(
+                image.mode,
+                image.size,
+                image.tobytes().translate(_INVERT_BYTES),
+            )
+        png = (
+            _encode_rgb_png(image.tobytes(), profile.width, height)
+            if image.mode == "RGB"
+            else _encode_gray_png(image.tobytes(), profile.width, height)
+        )
+        # pxpipe renders each page as ``page.join("\n")`` and reports those
+        # synthetic row separators in charsRendered.
+        chars = sum(len(line) for line in chunk) + max(0, len(chunk) - 1)
+        pages.append(
+            RenderedPage(
+                png=png,
+                width=profile.width,
+                height=height,
+                source_chars=chars,
+                dropped_chars=dropped_chars,
+                dropped_codepoints=dropped_codepoints,
+            ),
+        )
+    return pages
+
+
+@lru_cache(maxsize=64)
+def _cached_render_text_pages(
+    text: str,
+    profile_name: str,
+    max_pages: int | None,
+    slot_text: str | None,
+    render_variant: str,
+    columns: int | None,
+    atlas_mode: str,
+) -> tuple[RenderedPage, ...]:
+    return tuple(
+        _render_text_pages_uncached(
+            text,
+            profile_name,
+            max_pages,
+            slot_text,
+            render_variant,
+            columns,
+            atlas_mode,
+        ),
+    )
+
+
+def render_text_pages(
+    text: str,
+    profile_name: str = PRODUCTION_RECIPE.render_profile.name,
+    max_pages: int | None = None,
+    slot_text: str | None = None,
+    render_variant: str = PRODUCTION_RECIPE.render_variant.name,
+    *,
+    columns: int | None = None,
+    atlas_mode: str = "gray",
+) -> list[RenderedPage]:
+    """Render through a bounded cross-request cache of immutable PNG pages."""
+    return list(
+        _cached_render_text_pages(
+            text,
+            profile_name,
+            max_pages,
+            slot_text,
+            render_variant,
+            columns,
+            atlas_mode,
+        ),
+    )

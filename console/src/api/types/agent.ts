@@ -32,6 +32,51 @@ export interface ScrollConfig {
   offload_dialog: boolean;
 }
 
+export interface VisualCompressionConfig {
+  // TODO: STALE: Compatibility/benchmark identity fields; production closes
+  // over one immutable recipe and does not expose version selection in UI.
+  config_schema_version: number;
+  recipe_version: string;
+  pipeline_version: string;
+  renderer_version: string;
+  precision_version: string;
+  enabled: boolean;
+  // TODO: STALE: Temporary preflight/benchmark allowlist.
+  allowed_models: string[];
+  // TODO: STALE: Region ablation switches; freeze the production combination.
+  compress_system: boolean;
+  compress_tools: boolean;
+  compress_tool_results: boolean;
+  compress_history: boolean;
+  // TODO: STALE: Hidden threshold/history/page calibration surface.
+  min_block_chars: number;
+  min_static_tokens: number;
+  keep_recent_messages: number;
+  history_chunk_messages: number;
+  history_collapse_grid_messages: number;
+  max_images_per_request: number;
+  max_images_per_tool_result: number;
+  keep_sharp_tool_names: string[];
+  keep_sharp_patterns: string[];
+  // TODO: STALE: Freeze to the pxpipe-compatible production cap of 96.
+  factsheet_limit: number;
+  // TODO: STALE: Freeze to true after the no-factsheet ablation.
+  emit_factsheet: boolean;
+  // TODO: STALE: Evaluation receipt and renderer-ablation fields.
+  record_factsheet_text: boolean;
+  render_profile: "calibrated" | "5x8" | "7x10" | "9x12";
+  render_variant: string;
+  // TODO: STALE: Benchmark cost-model calibration; freeze internal defaults.
+  pixels_per_token: number;
+  image_cost_safety_margin: number;
+  chars_per_text_token: number;
+  max_visual_cost_ratio: number;
+  emit_recoverable: boolean;
+  // TODO: STALE: Paired benchmark arm and local artifact sink.
+  experiment_arm: "off" | "on" | "on_nofactsheet";
+  receipt_dir?: string | null;
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
@@ -39,6 +84,7 @@ export interface LightContextConfig {
   context_compact_config: ContextCompactConfig;
   scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
+  visual_compression_config: VisualCompressionConfig;
 }
 
 export interface AutoMemorySearchConfig {

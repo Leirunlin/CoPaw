@@ -198,7 +198,12 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = load_agent_config(agent_id)
+        # TODO: STALE: Headless visual-compression evaluation only. Remove
+        # this in-memory config source with the temporary evaluation CLI;
+        # production assembly should always load the persisted agent config.
+        agent_config = getattr(ctx, "agent_config", None)
+        if agent_config is None:
+            agent_config = load_agent_config(agent_id)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_coding_project(
             agent_config,
@@ -267,6 +272,14 @@ class AgentBuilder:
             agent_id,
             request_context,
             governor,
+        )
+        extra_tools.extend(
+            self._collect_visual_compression_tools(
+                agent_config,
+                agent_id,
+                request_context,
+                governor,
+            ),
         )
         (
             driver_tools,
@@ -440,6 +453,9 @@ class AgentBuilder:
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
             model_slot_override=model_slot_override,
+            # TODO: STALE: Keeps the temporary headless evaluation profile
+            # consistent with the builder. Remove with that evaluation path.
+            agent_config_override=agent_config,
         )
         if formatter is not None:
             innermost = model
@@ -691,6 +707,33 @@ class AgentBuilder:
             request_context=request_context,
             governor=governor,
         )
+
+    @staticmethod
+    def _collect_visual_compression_tools(
+        agent_config: Any,
+        agent_id: str,
+        request_context: dict[str, Any],
+        governor: Any = None,
+    ) -> list[Any]:
+        """Collect the optional visual-context recovery tool."""
+        config = (
+            agent_config.running.light_context_config.visual_compression_config
+        )
+        if not config.enabled or not config.emit_recoverable:
+            return []
+
+        from ..agents.context.visual_compression.runtime.recovery import (
+            recover_visual_context,
+        )
+
+        return [
+            AgentBuilder._wrap_tool(
+                recover_visual_context,
+                agent_id,
+                request_context,
+                governor,
+            ),
+        ]
 
     @staticmethod
     def _get_driver_prompt_hints(ctx: Any) -> list[str]:
@@ -1028,6 +1071,7 @@ class AgentBuilder:
         1. ToolResultPruningMiddleware — tiered tool result pruning
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
+        4. VisualCompressionMiddleware — innermost pre-provider transform
         """
         mws: list[Any] = []
 
@@ -1114,6 +1158,19 @@ class AgentBuilder:
                     reg.plugin_id,
                     exc_info=True,
                 )
+
+        # Visual compression is a request-boundary middleware. It reads the
+        # validated per-agent config and does not mutate it.
+        from ..agents.context.visual_compression.runtime.middleware import (
+            VisualCompressionMiddleware,
+        )
+
+        visual_config = (
+            agent_config.running.light_context_config.visual_compression_config
+        )
+        mws.append(
+            VisualCompressionMiddleware(visual_config),
+        )
 
         return mws
 

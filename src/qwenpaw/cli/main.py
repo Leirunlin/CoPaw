@@ -168,6 +168,13 @@ def _looks_like_project_path(value: str) -> bool:
             ".plugin_commands",
         ),
         "task": ("qwenpaw.cli.task_cmd", "task_cmd", ".task_cmd"),
+        # TODO: STALE: Evaluation-only command registration; remove before
+        # production release with the visual-compression benchmark surfaces.
+        "visual-compression": (
+            "qwenpaw.cli.visual_compression_cmd",
+            "visual_compression_group",
+            ".visual_compression_cmd",
+        ),
         "doctor": ("qwenpaw.cli.doctor_cmd", "doctor_cmd", ".doctor_cmd"),
         "auto": ("qwenpaw.cli.auto", "auto_group", ".auto"),
     },

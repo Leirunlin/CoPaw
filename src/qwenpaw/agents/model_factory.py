@@ -10,8 +10,10 @@ Example:
 """
 
 import base64
+import hashlib
 import logging
 import os
+import re
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
 from urllib.parse import unquote, urlparse
 
@@ -43,6 +45,48 @@ from ..providers.retry_chat_model import (
     RateLimitConfig,
 )
 from ..token_usage import TokenRecordingModelWrapper
+
+# TODO: STALE: Temporary QwenPaw workaround for AgentScope's random
+# ``shortuuid.uuid()`` identifiers when tool-result media is promoted into a
+# user message. Remove this regex, the helper below, and its formatter call
+# once AgentScope generates deterministic promoted-media identifiers.
+_PROMOTED_TOOL_MEDIA_LABEL = re.compile(r"^-\s+([^\s]+)\s+\(")
+
+
+def _stabilize_promoted_tool_result_media_identifiers(
+    text: str,
+    promoted: Sequence[Any],
+) -> tuple[str, Sequence[Any]]:
+    """Temporarily stabilize AgentScope's promoted-media identifiers.
+
+    TODO: STALE: Delete this compatibility helper after AgentScope replaces
+    its random ``shortuuid.uuid()`` with a deterministic identifier. Keep the
+    workaround beside the formatter adapter until then: it is independent of
+    visual compression and also applies to ordinary multimodal tool results.
+    """
+    rewritten = list(promoted)
+    for index, item in enumerate(rewritten[:-1]):
+        if not isinstance(item, TextBlock):
+            continue
+        match = _PROMOTED_TOOL_MEDIA_LABEL.match(item.text)
+        source = getattr(rewritten[index + 1], "source", None)
+        if match is None or source is None:
+            continue
+        old = match.group(1)
+        media_type = str(getattr(source, "media_type", "") or "")
+        value = str(
+            getattr(source, "url", None)
+            or getattr(source, "data", None)
+            or getattr(source, "path", None)
+            or "",
+        )
+        digest = hashlib.sha256(
+            f"{index}\0{media_type}\0{value}".encode("utf-8"),
+        ).hexdigest()[:12]
+        stable = f"qwenpaw-media-{digest}"
+        text = text.replace(f"[{old}]", f"[{stable}]")
+        rewritten[index] = TextBlock(text=item.text.replace(old, stable))
+    return text, rewritten
 
 
 def _file_url_to_path(url: str) -> str:
@@ -1174,7 +1218,11 @@ def _create_file_block_support_formatter(
 
             # Try parent class method first
             try:
-                return super().convert_tool_result_to_string(output)
+                text, promoted = super().convert_tool_result_to_string(output)
+                return _stabilize_promoted_tool_result_media_identifiers(
+                    text,
+                    promoted,
+                )
             except ValueError as e:
                 if "Unsupported block type: file" not in str(e):
                     raise ModelFormatterError(
@@ -1290,6 +1338,9 @@ def _resolve_model_slot_override(model_slot_override: Any):
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
+    # TODO: STALE: Temporary headless visual-compression evaluation input.
+    # Remove with the evaluation CLI and restore persisted-config-only setup.
+    agent_config_override: Any = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
@@ -1305,6 +1356,9 @@ def create_model_and_formatter(
             its schema, or a string of the form ``"<provider_id>:<model>"``.
             The model name itself may contain ``:`` (e.g. version tags);
             only the first ``:`` is treated as the separator.
+        agent_config_override: Optional isolated in-memory agent profile.
+            Used by headless experiments so model and request-transform
+            settings do not require mutating the persisted agent.json.
 
     Returns:
         Tuple of (model_instance, formatter_instance)
@@ -1329,7 +1383,7 @@ def create_model_and_formatter(
     compact_threshold: Optional[float] = None
     if agent_id:
         try:
-            agent_config = load_agent_config(agent_id)
+            agent_config = agent_config_override or load_agent_config(agent_id)
             model_slot = agent_config.active_model
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
