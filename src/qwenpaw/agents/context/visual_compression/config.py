@@ -290,9 +290,9 @@ class VisualCompressionRecipe:
 # complete algorithm decision surface in one immutable value so renderer,
 # gate, planner, and receipt cannot silently resolve different defaults.
 PRODUCTION_RECIPE = VisualCompressionRecipe(
-    recipe_id="qwenpaw-fixed-grid-v2",
+    recipe_id="qwenpaw-fixed-grid-v3",
     config_schema_version=1,
-    pipeline_version="pawfocus-v1",
+    pipeline_version="pawfocus-v2",
     renderer_version="pxpipe-render-v1",
     precision_version="pxpipe-facts-v1",
     render_profile=PROFILES["calibrated"],

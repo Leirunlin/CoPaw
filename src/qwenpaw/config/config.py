@@ -944,7 +944,7 @@ class VisualCompressionConfig(BaseModel):
         description="Persisted PawFocus configuration schema version.",
     )
     recipe_version: str = Field(
-        default="qwenpaw-fixed-grid-v2",
+        default="qwenpaw-fixed-grid-v3",
         description=(
             "TODO: STALE benchmark recipe fingerprint; ignored in production."
         ),
@@ -952,7 +952,7 @@ class VisualCompressionConfig(BaseModel):
     # TODO: STALE: Split behavior pins retained only for old benchmark
     # manifests. Production reads none of these persisted fingerprints.
     pipeline_version: str = Field(
-        default="pawfocus-v1",
+        default="pawfocus-v2",
         description=(
             "TODO: STALE split benchmark fingerprint; ignored in production."
         ),

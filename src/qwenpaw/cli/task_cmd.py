@@ -197,6 +197,12 @@ async def _run_task(  # pylint: disable=R0912,R0915
             agent.state.context.extend(
                 Msg.model_validate(item) for item in seed_context
             )
+        # TODO: STALE: Imported benchmark history can contain hundreds of
+        # historical tool calls. Execution metrics must start after seeding
+        # or a recovery regression is hidden inside the transcript baseline.
+        execution_context_start = len(
+            list(getattr(agent.state, "context", []) or []),
+        )
 
         t0 = time.monotonic()
         native_usage = None
@@ -296,19 +302,25 @@ async def _run_task(  # pylint: disable=R0912,R0915
 
         # TODO: STALE: Execution counters are benchmark report evidence.
         context_messages = list(getattr(agent.state, "context", []) or [])
-        tool_call_ids: set[str] = set()
+        live_messages = context_messages[execution_context_start:]
+        tool_call_names: dict[str, str] = {}
         tool_result_ids: set[str] = set()
-        for message in context_messages:
+        for message in live_messages:
             for block in getattr(message, "content", []) or []:
                 if isinstance(block, ToolCallBlock):
-                    tool_call_ids.add(block.id)
+                    tool_call_names.setdefault(block.id, block.name)
                 elif isinstance(block, ToolResultBlock):
                     tool_result_ids.add(block.id)
+        tool_calls_by_name: dict[str, int] = {}
+        for name in tool_call_names.values():
+            tool_calls_by_name[name] = tool_calls_by_name.get(name, 0) + 1
         result["execution"] = {
             "agent_iterations": int(getattr(agent.state, "cur_iter", 0) or 0),
             "context_messages": len(context_messages),
-            "tool_calls": len(tool_call_ids),
+            "live_context_messages": len(live_messages),
+            "tool_calls": len(tool_call_names),
             "tool_results": len(tool_result_ids),
+            "tool_calls_by_name": tool_calls_by_name,
         }
 
     # TODO: STALE: Per-call aggregation and trace export are benchmark-only.
@@ -332,14 +344,18 @@ async def _run_task(  # pylint: disable=R0912,R0915
                 "llm_calls": len(trace),
             }
         native_input = int(
-            getattr(native_usage, "input_tokens", 0) or 0
-            if native_usage is not None
-            else 0,
+            (
+                getattr(native_usage, "input_tokens", 0) or 0
+                if native_usage is not None
+                else 0
+            ),
         )
         native_output = int(
-            getattr(native_usage, "output_tokens", 0) or 0
-            if native_usage is not None
-            else 0,
+            (
+                getattr(native_usage, "output_tokens", 0) or 0
+                if native_usage is not None
+                else 0
+            ),
         )
         if native_input > 0 or native_output > 0:
             recorded_input = int(usage.get("input_tokens", 0) or 0)

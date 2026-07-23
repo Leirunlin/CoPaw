@@ -2608,6 +2608,16 @@ def _result_row(
         "tool_calls": int(
             (result.get("execution", {}) or {}).get("tool_calls", 0) or 0,
         ),
+        "recovery_calls": int(
+            (
+                (result.get("execution", {}) or {}).get(
+                    "tool_calls_by_name",
+                    {},
+                )
+                or {}
+            ).get("recover_visual_context", 0)
+            or 0,
+        ),
         "context_messages": int(
             (result.get("execution", {}) or {}).get("context_messages", 0)
             or 0,
@@ -2980,6 +2990,9 @@ def _arm_aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
             int(row.get("agent_iterations", 0) or 0) for row in rows
         ),
         "tool_calls": sum(int(row.get("tool_calls", 0) or 0) for row in rows),
+        "recovery_calls": sum(
+            int(row.get("recovery_calls", 0) or 0) for row in rows
+        ),
         "elapsed_seconds": elapsed,
         "raw_elapsed_seconds": sum(
             float(row.get("raw_elapsed_seconds", 0) or 0) for row in rows
@@ -3106,6 +3119,8 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "agent_iterations_on": on.get("agent_iterations", 0),
                 "tool_calls_off": off.get("tool_calls", 0),
                 "tool_calls_on": on.get("tool_calls", 0),
+                "recovery_calls_off": off.get("recovery_calls", 0),
+                "recovery_calls_on": on.get("recovery_calls", 0),
             },
         )
     off_rows = [row for row in rows if row["arm"] == "off"]
@@ -3336,6 +3351,7 @@ def _write_report(output_dir: Path, payload: dict[str, Any]) -> None:
         "failed_llm_attempts",
         "agent_iterations",
         "tool_calls",
+        "recovery_calls",
         "input_tokens",
         "provider_input_tokens",
         "output_tokens",
@@ -3518,6 +3534,8 @@ def _write_report(output_dir: Path, payload: dict[str, Any]) -> None:
             "- Tool calls OFF/ON: "
             f"{off.get('tool_calls', 0)}/{on.get('tool_calls', 0)}"
         ),
+        "- Recovery calls OFF/ON: "
+        f"{off.get('recovery_calls', 0)}/{on.get('recovery_calls', 0)}",
         "- Prefix component breaks OFF/ON: "
         f"{off.get('prefix_component_breaks', 0)}/"
         f"{on.get('prefix_component_breaks', 0)}",

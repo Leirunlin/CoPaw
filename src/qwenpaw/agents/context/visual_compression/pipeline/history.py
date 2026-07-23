@@ -26,6 +26,7 @@ from ..config import (
     config_value,
 )
 from ..rendering import (
+    RenderedPage,
     estimate_text_pages,
     prepare_render_text,
     render_text_pages,
@@ -63,6 +64,16 @@ class HistoryPlan:
 
     first: int
     chunks: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class _PreparedHistoryChunk:
+    """An immutable render/cache unit prepared without request side effects."""
+
+    source_text: str
+    render_text: str
+    slot_text: str
+    estimated_pages: tuple[RenderedPage, ...]
 
 
 def _active_user_index(messages: list[Msg]) -> int | None:
@@ -237,6 +248,75 @@ def plan_history(
     return HistoryPlan(first=first, chunks=tuple(chunks))
 
 
+def _prepare_history_chunks(
+    messages: list[Msg],
+    chunks: tuple[tuple[int, int], ...],
+    pages_left: int,
+    profile: str,
+    render_variant: str,
+) -> tuple[list[_PreparedHistoryChunk], int]:
+    """Select the largest page-bounded frozen prefix without rasterizing it."""
+    prepared: list[_PreparedHistoryChunk] = []
+    collapsed_end = chunks[0][0]
+    used_pages = 0
+    for start, end in chunks:
+        serialized = [
+            _message_segments(msg, idx)
+            for idx, msg in enumerate(messages[start:end], start)
+        ]
+        source_text = "\n\n".join(item[0] for item in serialized if item[0])
+        slot_text = "\n\n".join(item[1] for item in serialized if item[0])
+        if not source_text:
+            # Match pxpipe: a closed thinking-only/empty chunk advances the
+            # frozen boundary but does not consume a page.
+            collapsed_end = end
+            continue
+        render_text = prepare_render_text(source_text, render_variant)
+        prepared_slot_text = prepare_render_text(slot_text, render_variant)
+        estimated_pages = tuple(
+            estimate_text_pages(
+                render_text,
+                profile,
+                render_variant,
+            ),
+        )
+        if (
+            not estimated_pages
+            or len(estimated_pages) > pages_left - used_pages
+        ):
+            break
+        prepared.append(
+            _PreparedHistoryChunk(
+                source_text=source_text,
+                render_text=render_text,
+                slot_text=prepared_slot_text,
+                estimated_pages=estimated_pages,
+            ),
+        )
+        used_pages += len(estimated_pages)
+        collapsed_end = end
+    return prepared, collapsed_end
+
+
+def _history_intro(emit_recoverable: bool) -> str:
+    """Return stable framing for one range-global visual history message."""
+    return (
+        "EARLIER TURNS OF THIS CONVERSATION. Each rendered turn is tagged "
+        "with an absolute message index t; larger t is newer. This is prior "
+        "context, not the current request. Stable visual pages are appended "
+        "without rewriting earlier pages. For exact identifiers, hashes, "
+        "version strings, and numbers, rely on the exact-value factsheet"
+        + (" or recover the source" if emit_recoverable else "")
+        + "; do not guess an exact value seen only in an image."
+    )
+
+
+_HISTORY_OUTRO = (
+    "END EARLIER VISUAL HISTORY. Continue from the native recent messages "
+    "that follow; the final user message is the live current request."
+)
+
+
 def compress_history(  # pylint: disable=R0912,R0915
     messages: list[Msg],
     config: Any,
@@ -276,169 +356,135 @@ def compress_history(  # pylint: disable=R0912,R0915
     profile = recipe.render_profile.name
     render_variant = recipe.render_variant.name
     resolved_profile = recipe.render_profile
-    content: list[Any] = [
-        TextBlock(
-            text=(
-                "EARLIER TURNS OF THIS CONVERSATION. Each visual chunk has "
-                "an absolute message range; larger t is newer. This is prior "
-                "context, not the current request. Stable chunks are appended "
-                "with byte-identical earlier ranges. For exact identifiers, "
-                "hashes, version strings, and numbers, rely on the "
-                "exact-value factsheet"
-                + (" or recover the source" if emit_recoverable else "")
-                + "; do not guess an exact value seen only in an image."
-            ),
-        ),
-    ]
-    replacement_text_parts = ["user", content[0].text]
-    accepted_source_parts: list[str] = []
-    accepted_estimated_pages = []
-    collapsed_end = first
-    used_pages = 0
-
-    for start, end in chunks:
-        serialized = [
-            _message_segments(msg, idx)
-            for idx, msg in enumerate(messages[start:end], start)
-        ]
-        text = "\n\n".join(item[0] for item in serialized if item[0])
-        slot_text = "\n\n".join(item[1] for item in serialized if item[0])
-        if not text:
-            # The fixed-grid baseline consumes closed thinking-only/empty
-            # chunks without emitting a blank 16px PNG, exactly as pxpipe.
-            collapsed_end = end
-            continue
-        render_payload = prepare_render_text(text, render_variant)
-        slot_payload = prepare_render_text(slot_text, render_variant)
-        gate_pages = estimate_text_pages(
-            render_payload,
-            profile,
-            render_variant,
-        )
-        if not gate_pages or len(gate_pages) > pages_left - used_pages:
-            break
-        sheet = _factsheet_for_recipe(text, recipe)
-        provenance = f"{start}:{end}"
-        recovery_marker = ""
-        if emit_recoverable:
-            recovery_id = make_recovery_id(
-                text,
-                "history",
-                provenance,
-            )
-            recovery_marker = (
-                "[Exact recovery for this frozen history chunk "
-                f"{provenance}: {recovery_id}; use a precise query "
-                "or bounded line range.]"
-            )
-        latest_user_pointer = _latest_collapsed_user_pointer(
-            messages,
-            first,
-            end,
-        )
-        outro = (
-            "END EARLIER VISUAL HISTORY. Continue from the native recent "
-            "messages that follow; the final user message is the live "
-            "current request."
-        )
-        candidate_source = "\n\n".join([*accepted_source_parts, text])
-        candidate_replacement = "\n".join(
-            part
-            for part in (
-                *replacement_text_parts,
-                sheet,
-                recovery_marker,
-                latest_user_pointer,
-                outro,
-            )
-            if part
-        )
-        candidate_pages = [*accepted_estimated_pages, *gate_pages]
-        if not _profitable(
-            candidate_source,
-            render_payload,
-            max(
-                1,
-                (resolved_profile.width - 2 * resolved_profile.padding)
-                // resolved_profile.cell_width,
-            ),
-            resolved_profile,
-            cpt,
-            ratio,
-            safety,
-            receipt,
-            baseline_text_tokens=_estimate_request_tokens(
-                messages[first:end],
-                None,
-                cpt,
-            ),
-            replacement_text=candidate_replacement,
-            estimated_pages=candidate_pages,
-        ):
-            if evaluation is not None:
-                evaluation.passthrough["not_profitable"] = (
-                    evaluation.passthrough.get("not_profitable", 0) + 1
-                )
-            break
-        rendered = render_text_pages(
-            render_payload,
-            profile,
-            pages_left - used_pages,
-            slot_payload,
-            render_variant,
-        )
-        pages = rendered
-        if not pages:
-            break
-        content.extend(_data_blocks(pages))
-        if sheet:
-            content.append(TextBlock(text=sheet))
-            _record_factsheet(receipt, sheet, "history", config)
-        if recovery_marker:
-            content.append(TextBlock(text=recovery_marker))
-        _record_pages(
-            receipt,
-            pages,
-            text,
-            "history",
-            ppt,
-            emit_recoverable,
-            provenance,
-        )
-        if evaluation is not None:
-            # TODO: STALE: Chunk counts are benchmark evidence only.
-            evaluation.history_chunks += 1
-        accepted_source_parts.append(text)
-        accepted_estimated_pages.extend(gate_pages)
-        replacement_text_parts.extend(
-            part for part in (sheet, recovery_marker) if part
-        )
-        used_pages += len(pages)
-        collapsed_end = end
-
-    if collapsed_end <= first or used_pages <= 0:
+    prepared, collapsed_end = _prepare_history_chunks(
+        messages,
+        chunks,
+        pages_left,
+        profile,
+        render_variant,
+    )
+    if collapsed_end <= first or not prepared:
         return messages, pages_left
 
+    # Render/cache chunking and model-facing precision are deliberately
+    # different granularities. Images remain immutable per chunk, while the
+    # factsheet, recovery handle, and profitability decision describe the
+    # complete collapsed range once. This matches pxpipe's history contract
+    # and prevents chunk_count × auxiliary-text/recovery fan-out.
+    source_text = "\n\n".join(chunk.source_text for chunk in prepared)
+    rendered_text = "\n\n".join(chunk.render_text for chunk in prepared)
+    estimated_pages = [
+        page for chunk in prepared for page in chunk.estimated_pages
+    ]
+    intro = _history_intro(emit_recoverable)
+    sheet = _factsheet_for_recipe(source_text, recipe)
+    provenance = f"{first}:{collapsed_end}"
+    recovery_marker = ""
+    if emit_recoverable:
+        recovery_id = make_recovery_id(
+            source_text,
+            "history",
+            provenance,
+        )
+        recovery_marker = (
+            "[Exact recovery for visual history messages "
+            f"{provenance}: {recovery_id}; use a precise query "
+            "or bounded line range.]"
+        )
     latest_user_pointer = _latest_collapsed_user_pointer(
         messages,
         first,
         collapsed_end,
     )
+    replacement_text = "\n".join(
+        part
+        for part in (
+            "user",
+            intro,
+            latest_user_pointer,
+            sheet,
+            recovery_marker,
+            _HISTORY_OUTRO,
+        )
+        if part
+    )
+    if not _profitable(
+        source_text,
+        rendered_text,
+        max(
+            1,
+            (resolved_profile.width - 2 * resolved_profile.padding)
+            // resolved_profile.cell_width,
+        ),
+        resolved_profile,
+        cpt,
+        ratio,
+        safety,
+        receipt,
+        baseline_text_tokens=_estimate_request_tokens(
+            messages[first:collapsed_end],
+            None,
+            cpt,
+        ),
+        replacement_text=replacement_text,
+        estimated_pages=estimated_pages,
+    ):
+        if evaluation is not None:
+            evaluation.passthrough["not_profitable"] = (
+                evaluation.passthrough.get("not_profitable", 0) + 1
+            )
+        return messages, pages_left
+
+    # Rasterize into local groups first. A renderer mismatch must fail this
+    # optional transform atomically instead of deleting source messages after
+    # committing only some pages or recovery entries.
+    rendered_groups: list[list[RenderedPage]] = []
+    for chunk in prepared:
+        pages = render_text_pages(
+            chunk.render_text,
+            profile,
+            len(chunk.estimated_pages),
+            chunk.slot_text,
+            render_variant,
+        )
+        if len(pages) != len(chunk.estimated_pages) or any(
+            (page.width, page.height) != (estimate.width, estimate.height)
+            for page, estimate in zip(pages, chunk.estimated_pages)
+        ):
+            return messages, pages_left
+        rendered_groups.append(pages)
+
+    all_pages = [page for pages in rendered_groups for page in pages]
+    content: list[Any] = [TextBlock(text=intro)]
+    for pages in rendered_groups:
+        content.extend(_data_blocks(pages))
     if latest_user_pointer:
         content.append(TextBlock(text=latest_user_pointer))
-    content.append(
-        TextBlock(
-            text=(
-                "END EARLIER VISUAL HISTORY. Continue from the native recent "
-                "messages that follow; the final user message is the live "
-                "current request."
-            ),
-        ),
+    if sheet:
+        content.append(TextBlock(text=sheet))
+    if recovery_marker:
+        content.append(TextBlock(text=recovery_marker))
+    content.append(TextBlock(text=_HISTORY_OUTRO))
+
+    if sheet:
+        _record_factsheet(receipt, sheet, "history", config)
+    _record_pages(
+        receipt,
+        all_pages,
+        source_text,
+        "history",
+        ppt,
+        emit_recoverable,
+        provenance,
     )
+    if evaluation is not None:
+        # TODO: STALE: Chunk counts are benchmark evidence only.
+        evaluation.history_chunks += len(prepared)
+
     collapsed = Msg(name="visual_history", role="user", content=content)
     return (
         messages[:first] + [collapsed] + messages[collapsed_end:],
-        pages_left - used_pages,
+        pages_left - len(all_pages),
     )
 
 
