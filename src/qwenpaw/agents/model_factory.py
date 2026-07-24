@@ -46,6 +46,8 @@ from ..providers.retry_chat_model import (
 )
 from ..token_usage import TokenRecordingModelWrapper
 
+# TODO: Remove this workaround after AgentScope emits stable identifiers when
+# promoting tool-result media.
 _PROMOTED_TOOL_MEDIA_LABEL = re.compile(r"^-\s+([^\s]+)\s+\(")
 
 

@@ -93,7 +93,7 @@ def effort_preset(effort: str) -> EffortPreset:
 
 
 LOW_EFFORT_PRESET = EFFORT_PRESETS["low"]
-DEFAULT_EFFORT_PRESET = EFFORT_PRESETS["medium"]
+DEFAULT_EFFORT_PRESET = EFFORT_PRESETS["low"]
 
 
 __all__ = [

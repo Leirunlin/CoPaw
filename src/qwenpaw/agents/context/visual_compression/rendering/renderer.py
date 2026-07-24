@@ -13,6 +13,7 @@ from array import array
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -900,3 +901,9 @@ def render_text_pages(
             atlas_mode,
         ),
     )
+
+
+def render_cache_info() -> Any:
+    """Return the process-local rendered-page cache counters."""
+    # Pylint mistakes the lru wrapper helper for the wrapped render function.
+    return _cached_render_text_pages.cache_info()  # pylint: disable=E1120

@@ -12,10 +12,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 from ..utils.io_utils import run_sync_io
+
+if TYPE_CHECKING:
+    from ..agents.context.visual_compression.runtime.recovery import (
+        TurnRecoveryStore,
+    )
 
 _logger = logging.getLogger(__name__)
 
@@ -261,6 +266,11 @@ class AgentBuilder:
             local_ws.set_governor(governor)
 
         # Toolkit.
+        from ..agents.context.visual_compression.runtime.recovery import (
+            TurnRecoveryStore,
+        )
+
+        visual_recovery_store = TurnRecoveryStore()
         extra_tools = self._collect_coding_mode_tools(
             agent_config,
             workspace_dir,
@@ -274,6 +284,7 @@ class AgentBuilder:
                 agent_id,
                 request_context,
                 governor,
+                visual_recovery_store,
             ),
         )
         (
@@ -348,7 +359,11 @@ class AgentBuilder:
         # System prompt.
         sys_prompt = self.build_prompt(ctx, agent_config)
 
-        middlewares = self._build_middlewares(ctx, agent_config)
+        middlewares = self._build_middlewares(
+            ctx,
+            agent_config,
+            visual_recovery_store,
+        )
 
         running_config = agent_config.running
 
@@ -706,6 +721,7 @@ class AgentBuilder:
         agent_id: str,
         request_context: dict[str, Any],
         governor: Any = None,
+        recovery_store: TurnRecoveryStore | None = None,
     ) -> list[Any]:
         """Collect the optional visual-context recovery tool."""
         config = (
@@ -715,9 +731,16 @@ class AgentBuilder:
             return []
 
         from ..agents.context.visual_compression.runtime.recovery import (
-            recover_visual_context,
+            TurnRecoveryStore,
+            make_recover_visual_context_tool,
         )
 
+        store = (
+            recovery_store
+            if recovery_store is not None
+            else TurnRecoveryStore()
+        )
+        recover_visual_context = make_recover_visual_context_tool(store)
         return [
             AgentBuilder._wrap_tool(
                 recover_visual_context,
@@ -1056,6 +1079,7 @@ class AgentBuilder:
     def _build_middlewares(
         ctx: Any,
         agent_config: Any,
+        visual_recovery_store: TurnRecoveryStore | None = None,
     ) -> list[Any]:
         """Build middleware list.
 
@@ -1161,7 +1185,10 @@ class AgentBuilder:
             agent_config.running.light_context_config.visual_compact_config
         )
         mws.append(
-            VisualCompressionMiddleware(visual_config),
+            VisualCompressionMiddleware(
+                visual_config,
+                visual_recovery_store,
+            ),
         )
 
         return mws

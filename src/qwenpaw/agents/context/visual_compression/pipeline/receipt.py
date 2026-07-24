@@ -13,9 +13,14 @@ from .precision import factsheet_text
 
 @dataclass
 class CompressionReceipt:
-    """Exact sources represented by accepted visual replacements."""
+    """Exact sources and aggregate observability for accepted replacements."""
 
     recoverable: list[dict[str, Any]] = field(default_factory=list)
+    compressed_chars: int = 0
+    image_count: int = 0
+    source_estimated_tokens: int = 0
+    replacement_estimated_tokens: int = 0
+    regions: dict[str, int] = field(default_factory=dict)
 
 
 def make_recovery_id(
@@ -40,6 +45,9 @@ def record_pages(
     text: str,
     region: str,
     provenance: str = "",
+    *,
+    source_estimated_tokens: int = 0,
+    replacement_estimated_tokens: int = 0,
 ) -> None:
     """Register the exact source represented by accepted visual pages."""
     receipt.recoverable.append(
@@ -51,6 +59,17 @@ def record_pages(
             "image_count": page_count,
         },
     )
+    receipt.compressed_chars += len(text)
+    receipt.image_count += page_count
+    receipt.source_estimated_tokens += max(
+        0,
+        int(source_estimated_tokens),
+    )
+    receipt.replacement_estimated_tokens += max(
+        0,
+        int(replacement_estimated_tokens),
+    )
+    receipt.regions[region] = receipt.regions.get(region, 0) + 1
 
 
 __all__ = [

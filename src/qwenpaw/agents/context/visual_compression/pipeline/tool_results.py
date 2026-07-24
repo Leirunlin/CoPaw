@@ -23,6 +23,10 @@ from ..rendering import (
     render_rows_per_page,
     render_text_pages,
 )
+from .budget import count_text_tokens as _count_text_tokens
+from .budget import (
+    estimate_visual_replacement_tokens as _estimate_replacement_tokens,
+)
 from .budget import profitable as _profitable
 from .messages import compact_slab_whitespace as _compact_slab_whitespace
 from .messages import data_blocks as _data_blocks
@@ -426,6 +430,11 @@ def compress_tool_results(  # pylint: disable=R0915
             text,
             "tool_result",
             provenance,
+            source_estimated_tokens=_count_text_tokens(text),
+            replacement_estimated_tokens=_estimate_replacement_tokens(
+                replacement_text,
+                pages,
+            ),
         )
         pages_left -= len(pages)
         return output

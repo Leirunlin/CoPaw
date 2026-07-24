@@ -935,7 +935,7 @@ class VisualCompactConfig(BaseModel):
         description="Enable request-time text-to-image compression.",
     )
     effort: Literal["low", "medium", "high"] = Field(
-        default="medium",
+        default="low",
         description=(
             "Visual compression intensity. Higher effort places more eligible "
             "context in each image while preserving the same safety policy."

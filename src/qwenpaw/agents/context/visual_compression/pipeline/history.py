@@ -37,6 +37,9 @@ from ..rendering import (
     render_text_pages,
 )
 from .budget import profitable as _profitable
+from .budget import (
+    estimate_visual_replacement_tokens as _estimate_replacement_tokens,
+)
 from .messages import data_blocks as _data_blocks
 from .messages import (
     estimate_native_message_tokens as _estimate_native_message_tokens,
@@ -379,6 +382,11 @@ def compress_history(  # pylint: disable=R0912,R0915
         )
         if part
     )
+    source_estimated_tokens = _estimate_native_message_tokens(
+        messages[first:collapsed_end],
+        None,
+        CHARS_PER_TEXT_TOKEN_FALLBACK,
+    )
     if not _profitable(
         source_text,
         rendered_text,
@@ -387,11 +395,7 @@ def compress_history(  # pylint: disable=R0912,R0915
             (CANVAS_WIDTH - 2 * CANVAS_PADDING) // preset.cell_width,
         ),
         preset,
-        baseline_text_tokens=_estimate_native_message_tokens(
-            messages[first:collapsed_end],
-            None,
-            CHARS_PER_TEXT_TOKEN_FALLBACK,
-        ),
+        baseline_text_tokens=source_estimated_tokens,
         replacement_text=replacement_text,
         estimated_pages=estimated_pages,
     ):
@@ -433,6 +437,11 @@ def compress_history(  # pylint: disable=R0912,R0915
         source_text,
         "history",
         provenance,
+        source_estimated_tokens=source_estimated_tokens,
+        replacement_estimated_tokens=_estimate_replacement_tokens(
+            replacement_text,
+            all_pages,
+        ),
     )
 
     collapsed = Msg(name="visual_history", role="user", content=content)

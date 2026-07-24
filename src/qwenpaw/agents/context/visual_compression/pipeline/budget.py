@@ -71,6 +71,36 @@ def count_text_tokens(text: str, chars_per_token: float = 4.0) -> int:
         )
 
 
+def estimate_image_tokens(pages: list["RenderedPage"]) -> int:
+    """Estimate provider image tokens from rendered page geometry."""
+    return _estimate_image_tokens_from_dimensions(
+        [(page.width, page.height) for page in pages],
+    )
+
+
+def _estimate_image_tokens_from_dimensions(
+    dimensions: list[tuple[int, int]],
+) -> int:
+    """Estimate provider image tokens from width/height pairs."""
+    patch_sum = sum(
+        math.ceil(width / IMAGE_PATCH_SIZE)
+        * math.ceil(height / IMAGE_PATCH_SIZE)
+        for width, height in dimensions
+    )
+    return math.ceil(patch_sum * IMAGE_COST_SAFETY_MARGIN)
+
+
+def estimate_visual_replacement_tokens(
+    replacement_text: str,
+    pages: list["RenderedPage"],
+) -> int:
+    """Estimate the native-text plus visual-page replacement cost."""
+    return count_text_tokens(
+        replacement_text,
+        CHARS_PER_TEXT_TOKEN_FALLBACK,
+    ) + estimate_image_tokens(pages)
+
+
 def profitable(
     baseline_text: str,
     rendered_text: str,
@@ -123,17 +153,7 @@ def profitable(
     else:
         dimensions = [(page.width, page.height) for page in estimated_pages]
 
-    def patch_tokens(width: int, height: int) -> int:
-        return math.ceil(width / IMAGE_PATCH_SIZE) * math.ceil(
-            height / IMAGE_PATCH_SIZE,
-        )
-
-    patch_sum = sum(
-        patch_tokens(width, height) for width, height in dimensions
-    )
-    image_tokens = math.ceil(
-        patch_sum * IMAGE_COST_SAFETY_MARGIN,
-    )
+    image_tokens = _estimate_image_tokens_from_dimensions(dimensions)
     replacement_tokens = count_text_tokens(
         replacement_text,
         CHARS_PER_TEXT_TOKEN_FALLBACK,
@@ -146,4 +166,10 @@ def profitable(
     return accepted
 
 
-__all__ = ["RequestBudget", "count_text_tokens", "profitable"]
+__all__ = [
+    "RequestBudget",
+    "count_text_tokens",
+    "estimate_image_tokens",
+    "estimate_visual_replacement_tokens",
+    "profitable",
+]

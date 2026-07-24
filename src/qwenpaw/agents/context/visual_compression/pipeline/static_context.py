@@ -20,6 +20,9 @@ from ..rendering import (
     render_text_pages,
 )
 from .budget import count_text_tokens as _count_text_tokens
+from .budget import (
+    estimate_visual_replacement_tokens as _estimate_replacement_tokens,
+)
 from .budget import profitable as _profitable
 from .messages import compact_slab_whitespace as _compact_slab_whitespace
 from .messages import data_blocks as _data_blocks
@@ -279,5 +282,10 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         text,
         "static_slab",
         "system+tools",
+        source_estimated_tokens=removed_tokens,
+        replacement_estimated_tokens=_estimate_replacement_tokens(
+            replacement_text,
+            pages,
+        ),
     )
     return messages, new_tools, pages_left - len(pages), env_tail

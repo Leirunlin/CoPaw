@@ -8,6 +8,7 @@ from .renderer import (
     measure_content_columns,
     page_count_for_text,
     prepare_render_text,
+    render_cache_info,
     render_rows_per_page,
     render_text_pages,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "measure_content_columns",
     "page_count_for_text",
     "prepare_render_text",
+    "render_cache_info",
     "render_rows_per_page",
     "render_text_pages",
 ]
