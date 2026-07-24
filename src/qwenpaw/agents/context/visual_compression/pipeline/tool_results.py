@@ -10,13 +10,12 @@ from typing import Any
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolResultState
 
 from ..config import (
-    PRODUCTION_RECIPE,
-    VisualCompressionRecipe,
-    config_value,
-    resolve_render_profile,
+    CANVAS_PADDING,
+    CANVAS_WIDTH,
+    MAX_IMAGES_PER_TOOL_RESULT,
+    EffortPreset,
 )
 from ..rendering import (
-    READABLE_CHARS_PER_IMAGE,
     estimate_text_pages,
     measure_content_columns,
     page_count_for_text,
@@ -28,14 +27,13 @@ from .budget import profitable as _profitable
 from .messages import compact_slab_whitespace as _compact_slab_whitespace
 from .messages import data_blocks as _data_blocks
 from .receipt import CompressionReceipt
-from .receipt import factsheet_for_recipe as _factsheet_for_recipe
+from .receipt import factsheet_for_preset as _factsheet_for_preset
 from .receipt import make_recovery_id
-from .receipt import record_factsheet as _record_factsheet
 from .receipt import record_pages as _record_pages
 
 
 def _utf16_code_units(text: str) -> int:
-    """Count UTF-16 code units to preserve pxpipe pager semantics."""
+    """Count UTF-16 code units used by the paging contract."""
     return len(text.encode("utf-16-le")) // 2
 
 
@@ -89,8 +87,8 @@ def _ascii_word_boundary_after(text: str, prefix: str) -> bool:
     )
 
 
-def _pxpipe_visual_rows(text: str, columns: int) -> int:
-    """Port ``countVisualRows`` used by pxpipe's pager estimate."""
+def _visual_rows(text: str, columns: int) -> int:
+    """Estimate wrapped visual rows."""
     return sum(
         max(1, math.ceil(_utf16_code_units(line) / max(1, columns)))
         for line in text.split("\n")
@@ -98,7 +96,7 @@ def _pxpipe_visual_rows(text: str, columns: int) -> int:
 
 
 def _classify_content(text: str) -> str:
-    """Port pxpipe's structured/log/other paging classification."""
+    """Classify content for structured or head-tail paging."""
     head = _utf16_prefix(text, 4096)
     stripped = _ecmascript_trim_start(head)
     after_object = (
@@ -171,7 +169,7 @@ def _paging_marker(
         else f"Showing first {head_lines} lines (tail elided)."
     )
     return (
-        "\n\n[ pxpipe paging: omitted "
+        "\n\n[ Visual Compact paging: omitted "
         f"{omitted_lines:,} lines ({omitted_chars:,} chars) of content here. "
         f"Original length: {original_chars:,} chars "
         f"({original_lines:,} lines, ~{original_images:,} images). "
@@ -182,32 +180,30 @@ def _paging_marker(
 def _truncate_for_budget(  # pylint: disable=R0915
     text: str,
     max_images: int,
-    profile_name: str,
-    render_variant: str = "v0_pxpipe",
-    readable_chars_per_image: int = READABLE_CHARS_PER_IMAGE,
+    preset: EffortPreset,
 ) -> tuple[str, int]:
-    """Port pxpipe's visual-row and char-bounded head/tail pager."""
-    profile = resolve_render_profile(profile_name, render_variant)
+    """Apply the visual-row and character-bounded head/tail pager."""
     cols = max(
         1,
-        (profile.width - 2 * profile.padding) // profile.cell_width,
+        (CANVAS_WIDTH - 2 * CANVAS_PADDING) // preset.cell_width,
     )
     rows_per_image = render_rows_per_page(
-        profile,
+        preset,
         cols,
-        readable_chars_per_image,
     )
     estimated_images = max(
         1,
-        math.ceil(_pxpipe_visual_rows(text, cols) / rows_per_image),
-        math.ceil(_utf16_code_units(text) / readable_chars_per_image),
+        math.ceil(_visual_rows(text, cols) / rows_per_image),
+        math.ceil(
+            _utf16_code_units(text) / preset.readable_chars_per_image,
+        ),
     )
     if estimated_images <= max_images:
         return text, 0
     total_row_budget = max(8, max_images * rows_per_image - 6)
     total_char_budget = max(
         128,
-        max_images * readable_chars_per_image - 512,
+        max_images * preset.readable_chars_per_image - 512,
     )
     delimiter = "\n" if "\n" in text else "↵"
     lines = text.split(delimiter)
@@ -307,64 +303,24 @@ def _truncate_for_budget(  # pylint: disable=R0915
     return head + marker + tail, omitted
 
 
-def _configured_keep_sharp(
-    block: ToolResultBlock,
-    text: str,
-    config: Any,
-) -> bool:
+def _must_keep_native(block: ToolResultBlock) -> bool:
     # Recovery is already the exact native escape hatch for visualized source.
     # Re-imaging its output on the immediately following call would create a
     # recovery-of-recovery loop and hide the text the model explicitly asked
     # to inspect. Old recovery turns may still enter a later history image.
     if block.name.casefold() == "recover_visual_context":
         return True
-    names = {
-        str(name).casefold()
-        for name in config_value(config, "keep_sharp_tool_names", [])
-    }
-    if block.name.casefold() in names:
-        return True
-    for pattern in config_value(config, "keep_sharp_patterns", []):
-        try:
-            if re.search(str(pattern), text):
-                return True
-        except re.error:
-            # pxpipe treats a throwing/non-boolean callback as false. Invalid
-            # Serialized regexes follow the same fail-open-to-normal-planning
-            # rule.
-            continue
     return False
 
 
 def compress_tool_results(  # pylint: disable=R0915
     messages: list[Msg],
-    config: Any,
     receipt: CompressionReceipt,
     pages_left: int,
-    recipe: VisualCompressionRecipe = PRODUCTION_RECIPE,
+    preset: EffortPreset,
 ) -> int:
     """Rewrite eligible results across the copied request in place."""
-    # TODO: STALE: The per-region switch exists only for benchmark ablations.
-    # Production will always apply the immutable recipe to eligible results.
-    # TODO: STALE: Optional counters and ``pixels_per_token`` below exist only
-    # for local benchmark receipts. They do not participate in production
-    # selection, paging, or rendering.
-    evaluation = receipt.evaluation
-    if evaluation is not None and not config_value(
-        config,
-        "compress_tool_results",
-        True,
-    ):
-        return pages_left
-    min_chars = recipe.tool_result_min_chars
-    ppt = float(config_value(config, "pixels_per_token", 750.0))
-    cpt = recipe.chars_per_text_token_fallback
-    ratio = recipe.tool_result_max_visual_cost_ratio
-    safety = recipe.image_cost_safety_margin
-    profile = recipe.render_profile.name
-    render_variant = recipe.render_variant.name
-    resolved_profile = recipe.render_profile
-    emit_recoverable = bool(config_value(config, "emit_recoverable", True))
+    min_chars = preset.tool_result_min_chars
 
     def compress_part(  # pylint: disable=R0911,R0912
         block: ToolResultBlock,
@@ -374,157 +330,91 @@ def compress_tool_results(  # pylint: disable=R0915
         nonlocal pages_left
         if pages_left <= 0:
             return None
-        if _configured_keep_sharp(block, text, config):
-            if evaluation is not None:
-                evaluation.passthrough["kept_sharp"] = (
-                    evaluation.passthrough.get("kept_sharp", 0) + 1
-                )
+        if _must_keep_native(block):
             return None
-        recovery_id = (
-            make_recovery_id(text, "tool_result", provenance)
-            if emit_recoverable
-            else None
-        )
-        sheet = _factsheet_for_recipe(text, recipe)
+        recovery_id = make_recovery_id(text, "tool_result", provenance)
+        sheet = _factsheet_for_preset(text, preset)
         page_budget = min(
             pages_left,
-            recipe.max_images_per_tool_result,
+            MAX_IMAGES_PER_TOOL_RESULT,
         )
         rendered_source = prepare_render_text(
             _compact_slab_whitespace(text),
-            render_variant,
         )
         if _utf16_code_units(rendered_source) < min_chars:
-            if evaluation is not None:
-                evaluation.passthrough["below_threshold"] = (
-                    evaluation.passthrough.get("below_threshold", 0) + 1
-                )
             return None
         render_payload = rendered_source
-        omitted_chars = 0
         render_columns = measure_content_columns(
             render_payload,
-            profile,
-            render_variant,
+            preset,
         )
         if (
             page_count_for_text(
                 render_payload,
-                profile,
-                render_variant,
+                preset,
                 columns=render_columns,
-                readable_chars_per_image=recipe.readable_chars_per_image,
             )
             > page_budget
         ):
-            # Paging deliberately omits a middle/tail region. Without the
-            # recovery channel there is no exact path back to those bytes, so
-            # keep the native result instead of performing an irreversible
-            # visual replacement.
-            if not emit_recoverable:
-                if evaluation is not None:
-                    evaluation.passthrough["paging_requires_recovery"] = (
-                        evaluation.passthrough.get(
-                            "paging_requires_recovery",
-                            0,
-                        )
-                        + 1
-                    )
-                return None
-            rendered_source, omitted_chars = _truncate_for_budget(
+            rendered_source, _ = _truncate_for_budget(
                 rendered_source,
                 page_budget,
-                profile,
-                render_variant,
-                recipe.readable_chars_per_image,
+                preset,
             )
             render_payload = rendered_source
             render_columns = measure_content_columns(
                 render_payload,
-                profile,
-                render_variant,
+                preset,
             )
             if (
                 page_count_for_text(
                     render_payload,
-                    profile,
-                    render_variant,
+                    preset,
                     columns=render_columns,
-                    readable_chars_per_image=recipe.readable_chars_per_image,
                 )
                 > page_budget
             ):
-                if evaluation is not None:
-                    evaluation.passthrough["paging_failed"] = (
-                        evaluation.passthrough.get("paging_failed", 0) + 1
-                    )
                 return None
         estimated_pages = estimate_text_pages(
             render_payload,
-            profile,
-            render_variant,
+            preset,
             columns=render_columns,
-            readable_chars_per_image=recipe.readable_chars_per_image,
         )
         if len(estimated_pages) > page_budget:
-            if evaluation is not None:
-                evaluation.passthrough["paging_failed"] = (
-                    evaluation.passthrough.get("paging_failed", 0) + 1
-                )
             return None
         # The original native part is what disappears. Price the complete
         # replacement that survives on the request: rendered pages plus its
         # factsheet and association/recovery marker.
         marker = f"[Visual pages associated with output from {block.name}."
-        if recovery_id is not None:
-            marker += (
-                f" Exact recovery id: {recovery_id}; prefer query=... or a "
-                "bounded line range, not the whole source."
-            )
+        marker += (
+            f" Exact recovery id: {recovery_id}; prefer query=... or a "
+            "bounded line range, not the whole source."
+        )
         marker += "]"
         replacement_text = "\n".join(part for part in (sheet, marker) if part)
         if not _profitable(
             text,
             render_payload,
             render_columns,
-            resolved_profile,
-            cpt,
-            ratio,
-            safety,
-            receipt,
+            preset,
             image_count_cap=page_budget,
             replacement_text=replacement_text,
             estimated_pages=estimated_pages,
         ):
-            if evaluation is not None:
-                evaluation.passthrough["not_profitable"] = (
-                    evaluation.passthrough.get("not_profitable", 0) + 1
-                )
             return None
         pages = render_text_pages(
             render_payload,
-            profile,
+            preset,
             page_budget,
-            None,
-            render_variant,
             columns=render_columns,
             atlas_mode="gray",
-            readable_chars_per_image=recipe.readable_chars_per_image,
         )
         if not pages:
             return None
-        if omitted_chars and evaluation is not None:
-            # TODO: STALE: Truncation counters are benchmark evidence only.
-            evaluation.truncated_tool_results += 1
-            evaluation.omitted_chars += omitted_chars
-        # pxpipe puts image blocks first inside tool_result content. Precision
-        # and recovery text follows, preserving a stable visual prefix.
+        # Images lead the tool-result content; native precision text follows.
         output: list[Any] = [*_data_blocks(pages)]
         if sheet:
             output.append(TextBlock(text=sheet))
-            # TODO: STALE: Record only benchmark counters/text; ``sheet`` above
-            # is the complete production precision channel.
-            _record_factsheet(receipt, sheet, "tool_result", config)
         # Anthropic keeps this canonical block order, while AgentScope's OpenAI
         # formatter promotes DataBlocks into a following user message.
         # Describe association, not before/after order, so the same
@@ -532,11 +422,9 @@ def compress_tool_results(  # pylint: disable=R0915
         output.append(TextBlock(text=marker))
         _record_pages(
             receipt,
-            pages,
+            len(pages),
             text,
             "tool_result",
-            ppt,
-            emit_recoverable,
             provenance,
         )
         pages_left -= len(pages)
@@ -550,14 +438,6 @@ def compress_tool_results(  # pylint: disable=R0915
             if not isinstance(block, ToolResultBlock):
                 continue
             if block.state != ToolResultState.SUCCESS:
-                if evaluation is not None:
-                    evaluation.passthrough["non_success_tool_result"] = (
-                        evaluation.passthrough.get(
-                            "non_success_tool_result",
-                            0,
-                        )
-                        + 1
-                    )
                 continue
             if isinstance(block.output, str):
                 replacement = compress_part(block, block.output, block.id)

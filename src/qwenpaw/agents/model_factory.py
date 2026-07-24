@@ -46,10 +46,6 @@ from ..providers.retry_chat_model import (
 )
 from ..token_usage import TokenRecordingModelWrapper
 
-# TODO: STALE: Temporary QwenPaw workaround for AgentScope's random
-# ``shortuuid.uuid()`` identifiers when tool-result media is promoted into a
-# user message. Remove this regex, the helper below, and its formatter call
-# once AgentScope generates deterministic promoted-media identifiers.
 _PROMOTED_TOOL_MEDIA_LABEL = re.compile(r"^-\s+([^\s]+)\s+\(")
 
 
@@ -57,13 +53,7 @@ def _stabilize_promoted_tool_result_media_identifiers(
     text: str,
     promoted: Sequence[Any],
 ) -> tuple[str, Sequence[Any]]:
-    """Temporarily stabilize AgentScope's promoted-media identifiers.
-
-    TODO: STALE: Delete this compatibility helper after AgentScope replaces
-    its random ``shortuuid.uuid()`` with a deterministic identifier. Keep the
-    workaround beside the formatter adapter until then: it is independent of
-    visual compression and also applies to ordinary multimodal tool results.
-    """
+    """Replace formatter-generated media labels with stable identifiers."""
     rewritten = list(promoted)
     for index, item in enumerate(rewritten[:-1]):
         if not isinstance(item, TextBlock):
@@ -1216,20 +1206,18 @@ def _create_file_block_support_formatter(
             if isinstance(output, str):
                 return output, []
 
-            # Try parent class method first
             try:
                 text, promoted = super().convert_tool_result_to_string(output)
                 return _stabilize_promoted_tool_result_media_identifiers(
                     text,
                     promoted,
                 )
-            except ValueError as e:
-                if "Unsupported block type: file" not in str(e):
+            except ValueError as exc:
+                if "Unsupported block type: file" not in str(exc):
                     raise ModelFormatterError(
-                        message=str(e),
-                    ) from e
+                        message=str(exc),
+                    ) from exc
 
-                # Handle output containing file blocks
                 textual_output = []
                 multimodal_data = []
 
@@ -1240,7 +1228,7 @@ def _create_file_block_support_formatter(
                                 f"Invalid block: {block}, "
                                 "expected a dict with 'type' key"
                             ),
-                        ) from e
+                        ) from exc
 
                     if block["type"] == "file":
                         file_path = block.get("path", "") or block.get(
@@ -1255,11 +1243,9 @@ def _create_file_block_support_formatter(
                         )
                         multimodal_data.append((file_path, block))
                     else:
-                        # Delegate other block types to parent class
-                        (
-                            text,
-                            data,
-                        ) = super().convert_tool_result_to_string([block])
+                        text, data = super().convert_tool_result_to_string(
+                            [block],
+                        )
                         textual_output.append(text)
                         multimodal_data.extend(data)
 
@@ -1338,9 +1324,6 @@ def _resolve_model_slot_override(model_slot_override: Any):
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
-    # TODO: STALE: Temporary headless visual-compression evaluation input.
-    # Remove with the evaluation CLI and restore persisted-config-only setup.
-    agent_config_override: Any = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
@@ -1356,10 +1339,6 @@ def create_model_and_formatter(
             its schema, or a string of the form ``"<provider_id>:<model>"``.
             The model name itself may contain ``:`` (e.g. version tags);
             only the first ``:`` is treated as the separator.
-        agent_config_override: Optional isolated in-memory agent profile.
-            Used by headless experiments so model and request-transform
-            settings do not require mutating the persisted agent.json.
-
     Returns:
         Tuple of (model_instance, formatter_instance)
 
@@ -1383,7 +1362,7 @@ def create_model_and_formatter(
     compact_threshold: Optional[float] = None
     if agent_id:
         try:
-            agent_config = agent_config_override or load_agent_config(agent_id)
+            agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,

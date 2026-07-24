@@ -28,9 +28,7 @@ _UUID = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
 )
-# JavaScript regexes and strings do not share Python's Unicode defaults.  Keep
-# these semantics explicit because token boundaries, page cuts, and stable sort
-# order are part of the pxpipe factsheet contract.
+# Keep Unicode whitespace and UTF-16 boundaries explicit for stable results.
 _ECMASCRIPT_WHITESPACE = (
     "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
     "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009"
@@ -214,7 +212,7 @@ def extract_fact_entries(
     text: str,
     limit: int = FACTSHEET_MAX_ENTRIES,
 ) -> list[FactEntry]:
-    """Extract pxpipe-derived high-risk tokens under a fixed entry cap."""
+    """Extract high-risk exact tokens under a fixed entry cap."""
     if not text or limit <= 0:
         return []
     text_units = _utf16_code_units(text)
@@ -233,11 +231,6 @@ def extract_fact_entries(
                 merged_counts.get(entry.value, 0) + entry.count
             )
     return _select(merged_counts, limit)
-
-
-def extract_facts(text: str, limit: int = FACTSHEET_MAX_ENTRIES) -> list[str]:
-    """TODO: STALE: Return values for local tests without metadata."""
-    return [entry.value for entry in extract_fact_entries(text, limit)]
 
 
 def factsheet_text(text: str, limit: int = FACTSHEET_MAX_ENTRIES) -> str:
@@ -267,6 +260,5 @@ def factsheet_text(text: str, limit: int = FACTSHEET_MAX_ENTRIES) -> str:
 __all__ = [
     "FactEntry",
     "extract_fact_entries",
-    "extract_facts",
     "factsheet_text",
 ]

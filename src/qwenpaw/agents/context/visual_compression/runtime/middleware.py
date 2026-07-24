@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from agentscope.middleware import MiddlewareBase
 
+from ..config import effort_preset
 from .recovery import set_recoverable_blocks
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,8 @@ class VisualCompressionMiddleware(MiddlewareBase):
     """Rewrite one prepared request immediately before provider I/O."""
 
     def __init__(self, config: Any) -> None:
-        self._visual_config = config
+        self._enabled = bool(config.enabled)
+        self._effort_preset = effort_preset(str(config.effort))
 
     async def on_model_call(
         self,
@@ -65,7 +67,7 @@ class VisualCompressionMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> Any:
-        if not self._visual_config.enabled:
+        if not self._enabled:
             set_recoverable_blocks([])
             return await next_handler(**input_kwargs)
 
@@ -88,7 +90,7 @@ class VisualCompressionMiddleware(MiddlewareBase):
             transformed, transformed_tools, receipt = transform_model_request(
                 messages,
                 tools,
-                config=self._visual_config,
+                effort_preset=self._effort_preset,
             )
         except Exception:  # pylint: disable=broad-exception-caught
             logger.exception(
@@ -99,27 +101,6 @@ class VisualCompressionMiddleware(MiddlewareBase):
         set_recoverable_blocks(receipt.recoverable)
         request["messages"] = transformed
         request["tools"] = transformed_tools
-
-        # TODO: STALE: Receipt correlation and PNG persistence serve only the
-        # temporary benchmark. Keep them outside the production transform
-        # failure boundary: evaluation I/O must never disable compression.
-        # Only bind the object reference; the opted-in benchmark trace is
-        # responsible for the potentially expensive ``to_dict`` copy.
-        receipt_evaluation = receipt.evaluation
-        if receipt_evaluation is not None and receipt_evaluation.receipt_dir:
-            try:
-                from .evaluation import (
-                    persist_page_artifacts,
-                    set_request_receipt,
-                )
-
-                set_request_receipt(transformed, receipt)
-                persist_page_artifacts(receipt)
-            except Exception:  # pylint: disable=broad-exception-caught
-                logger.warning(
-                    "Visual-compression evaluation capture failed",
-                    exc_info=True,
-                )
         return await next_handler(**request)
 
 

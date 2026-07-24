@@ -107,10 +107,6 @@ async def recover_visual_context(
         start_line: Optional 1-based exact line-range start.
         end_line: Optional 1-based exact line-range end.
     """
-    # TODO: Quality/latency follow-up: keep exact recovery available,
-    # but add a request-local limit for repeated
-    # low-information recovery queries. Do not remove recovery merely because
-    # the first fixed-grid benchmark exposed unproductive retries.
     text = recover_block_excerpt(
         block_id,
         query=query,

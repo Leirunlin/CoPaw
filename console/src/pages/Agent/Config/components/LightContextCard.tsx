@@ -13,6 +13,7 @@ import {
   calculateReserveThreshold,
   usesTieredToolResultSettings,
 } from "./toolResultSettings";
+import { VisualCompactCard } from "./VisualCompactCard";
 import styles from "../index.module.less";
 
 interface LightContextCardProps {
@@ -22,13 +23,6 @@ interface LightContextCardProps {
 // Retention windows longer than this many days trigger a (non-blocking)
 // storage warning. 0 (keep forever) warns separately.
 const HISTORY_RETENTION_LARGE_WARN_DAYS = 30;
-
-// Evaluation-only knobs stay in the form schema for reproducible benchmarks,
-// but the product surface intentionally exposes one opt-in switch with the
-// pxpipe-aligned defaults.
-// TODO: STALE: Remove the hidden tuning controls and this guard before the
-// production release.
-const SHOW_EXPERIMENTAL_VISUAL_COMPRESSION_TUNING = false;
 
 export function LightContextCard({ maxInputLength }: LightContextCardProps) {
   const { t } = useTranslation();
@@ -113,6 +107,8 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
           marks={{ 2: "2", 3: "3", 4: "4", 5: "5" }}
         />
       </Form.Item>
+
+      <VisualCompactCard />
 
       <Collapse
         items={[
@@ -417,270 +413,6 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                         style={{ width: "100%" }}
                       />
                     </Form.Item>
-                  </>
-                )}
-              </>
-            ),
-          },
-          {
-            key: "visualCompression",
-            label: t("agentConfig.visualCompressionCollapseLabel"),
-            children: (
-              <>
-                <Form.Item
-                  label={t("agentConfig.visualCompressionEnabled")}
-                  name={[
-                    "light_context_config",
-                    "visual_compression_config",
-                    "enabled",
-                  ]}
-                  valuePropName="checked"
-                  tooltip={t("agentConfig.visualCompressionEnabledTooltip")}
-                >
-                  <Switch />
-                </Form.Item>
-
-                {SHOW_EXPERIMENTAL_VISUAL_COMPRESSION_TUNING && (
-                  <>
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionModels")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "allowed_models",
-                      ]}
-                      tooltip={t("agentConfig.visualCompressionModelsTooltip")}
-                    >
-                      <Select
-                        mode="tags"
-                        placeholder="qwen3.7-plus"
-                        tokenSeparators={[",", " "]}
-                        style={{ width: "100%" }}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionProfile")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "render_profile",
-                      ]}
-                      tooltip={t("agentConfig.visualCompressionProfileTooltip")}
-                    >
-                      <Select
-                        options={[
-                          {
-                            value: "calibrated",
-                            label: "Calibrated (Spleen 5×8)",
-                          },
-                          { value: "5x8", label: "5×8" },
-                          { value: "7x10", label: "7×10" },
-                          { value: "9x12", label: "9×12" },
-                        ]}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionMinStaticTokens")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "min_static_tokens",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionMinStaticTokensTooltip",
-                      )}
-                    >
-                      <SliderWithValue min={0} max={4000} step={100} />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionMinChars")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "min_block_chars",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionMinCharsTooltip",
-                      )}
-                    >
-                      <SliderWithValue
-                        min={1000}
-                        max={20000}
-                        step={1000}
-                        marks={{ 1000: "1K", 6000: "6K", 20000: "20K" }}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionRecent")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "keep_recent_messages",
-                      ]}
-                      tooltip={t("agentConfig.visualCompressionRecentTooltip")}
-                    >
-                      <SliderWithValue
-                        min={1}
-                        max={20}
-                        step={1}
-                        marks={{ 1: "1", 6: "6", 20: "20" }}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionMaxImages")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "max_images_per_request",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionMaxImagesTooltip",
-                      )}
-                    >
-                      <SliderWithValue
-                        min={1}
-                        max={100}
-                        step={1}
-                        marks={{ 1: "1", 32: "32", 100: "100" }}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionHistoryChunk")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "history_chunk_messages",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionHistoryChunkTooltip",
-                      )}
-                    >
-                      <SliderWithValue min={2} max={50} step={2} />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionMaxToolImages")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "max_images_per_tool_result",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionMaxToolImagesTooltip",
-                      )}
-                    >
-                      <SliderWithValue min={1} max={32} step={1} />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionFactsheetLimit")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "factsheet_limit",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionFactsheetLimitTooltip",
-                      )}
-                    >
-                      <SliderWithValue min={0} max={96} step={8} />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionKeepSharpTools")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "keep_sharp_tool_names",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionKeepSharpToolsTooltip",
-                      )}
-                    >
-                      <Select mode="tags" tokenSeparators={[",", " "]} />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t(
-                        "agentConfig.visualCompressionKeepSharpPatterns",
-                      )}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "keep_sharp_patterns",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionKeepSharpPatternsTooltip",
-                      )}
-                    >
-                      <Select mode="tags" tokenSeparators={[","]} />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionCostRatio")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "max_visual_cost_ratio",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionCostRatioTooltip",
-                      )}
-                    >
-                      <SliderWithValue
-                        min={0.5}
-                        max={2}
-                        step={0.05}
-                        marks={{ 0.5: "0.5×", 1: "1×", 1.15: "1.15×", 2: "2×" }}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.visualCompressionSafetyMargin")}
-                      name={[
-                        "light_context_config",
-                        "visual_compression_config",
-                        "image_cost_safety_margin",
-                      ]}
-                      tooltip={t(
-                        "agentConfig.visualCompressionSafetyMarginTooltip",
-                      )}
-                    >
-                      <SliderWithValue
-                        min={1}
-                        max={2}
-                        step={0.05}
-                        marks={{ 1: "1×", 1.1: "1.1×", 1.5: "1.5×", 2: "2×" }}
-                      />
-                    </Form.Item>
-
-                    {[
-                      ["compress_system", "visualCompressionSystem"],
-                      ["compress_tools", "visualCompressionTools"],
-                      ["compress_tool_results", "visualCompressionToolResults"],
-                      ["compress_history", "visualCompressionHistory"],
-                      ["emit_factsheet", "visualCompressionFactsheet"],
-                      ["emit_recoverable", "visualCompressionRecoverable"],
-                    ].map(([field, label]) => (
-                      <Form.Item
-                        key={field}
-                        label={t(`agentConfig.${label}`)}
-                        name={[
-                          "light_context_config",
-                          "visual_compression_config",
-                          field,
-                        ]}
-                        valuePropName="checked"
-                      >
-                        <Switch />
-                      </Form.Item>
-                    ))}
                   </>
                 )}
               </>

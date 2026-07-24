@@ -431,8 +431,8 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         policy_name="MemorySearch",
         owner="builtin",
     )
-    # PawFocus recovery is feature-scoped and collected by AgentBuilder, so it
-    # intentionally stays out of the global @tool_descriptor builtin set.
+    # Visual compact recovery is feature-scoped and collected by AgentBuilder,
+    # so it stays out of the global @tool_descriptor builtin set.
     register_tool_governance(
         registry,
         python_name="recover_visual_context",

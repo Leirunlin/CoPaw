@@ -925,265 +925,22 @@ class ScrollContextConfig(BaseModel):
     )
 
 
-class VisualCompressionConfig(BaseModel):
-    """Request-time visual context compression.
+class VisualCompactConfig(BaseModel):
+    """User-facing visual compact settings."""
 
-    This layer is deliberately independent from durable context management:
-    it rewrites a deep copy of the model request and never mutates the stored
-    AgentState or scroll history.
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    # TODO: STALE: Compatibility/version fields were used by the temporary
-    # benchmark manifests. Production behavior is the code-owned immutable
-    # recipe and does not perform a second visual-specific compatibility gate.
-    config_schema_version: int = Field(
-        default=1,
-        ge=1,
-        description="Persisted PawFocus configuration schema version.",
-    )
-    recipe_version: str = Field(
-        default="qwenpaw-fixed-grid-v3",
-        description=(
-            "TODO: STALE benchmark recipe fingerprint; ignored in production."
-        ),
-    )
-    # TODO: STALE: Split behavior pins retained only for old benchmark
-    # manifests. Production reads none of these persisted fingerprints.
-    pipeline_version: str = Field(
-        default="pawfocus-v2",
-        description=(
-            "TODO: STALE split benchmark fingerprint; ignored in production."
-        ),
-    )
-    renderer_version: str = Field(
-        default="pxpipe-render-v1",
-        description=(
-            "TODO: STALE split benchmark fingerprint; ignored in production."
-        ),
-    )
-    precision_version: str = Field(
-        default="pxpipe-facts-v1",
-        description=(
-            "TODO: STALE split benchmark fingerprint; ignored in production."
-        ),
-    )
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = Field(
         default=False,
         description="Enable request-time text-to-image compression.",
     )
     effort: Literal["low", "medium", "high"] = Field(
-        default="low",
+        default="medium",
         description=(
-            "Visual compression intensity. Low preserves the current "
-            "conservative baseline; medium and high progressively increase "
-            "the profitability gate, image capacity, and eligible context."
+            "Visual compression intensity. Higher effort places more eligible "
+            "context in each image while preserving the same safety policy."
         ),
     )
-    # TODO: STALE: Model capability now comes from QwenPaw's existing provider
-    # capability registry, shared with view_image and formatter normalization.
-    allowed_models: List[str] = Field(
-        default_factory=lambda: ["qwen3.7-plus"],
-        description="TODO: STALE benchmark model list; ignored in production.",
-    )
-    # TODO: STALE: These four per-region switches exist for benchmark
-    # ablations. Freeze the validated production combination and remove the
-    # persisted switches with the hidden tuning UI before the production PR.
-    compress_system: bool = True
-    compress_tools: bool = True
-    compress_tool_results: bool = True
-    compress_history: bool = True
-    # TODO: STALE: Threshold, history-boundary, and synthetic-page fields below
-    # are old calibration knobs, not a stable product API. Their winning values
-    # already live in the immutable production recipe; remove these persisted
-    # copies with the benchmark/UI tuning surface.
-    min_block_chars: int = Field(default=6000, ge=256)
-    min_static_tokens: int = Field(
-        default=0,
-        ge=0,
-        description=(
-            "TODO: STALE optional exact-token floor for static benchmark "
-            "ablations. Production always uses pxpipe's 2000-char floor."
-        ),
-    )
-    keep_recent_messages: int = Field(default=6, ge=1, le=100)
-    history_chunk_messages: int = Field(
-        default=10,
-        ge=2,
-        le=50,
-        description=(
-            "Nominal message-grid size for append-only, cache-stable history "
-            "rendering. Protocol closure may end a chunk before the nominal "
-            "boundary; completed source ranges remain fixed."
-        ),
-    )
-    history_collapse_grid_messages: int = Field(
-        default=50,
-        ge=10,
-        le=100,
-        description=(
-            "Fixed-grid boundary for the single production history planner. "
-            "The selected baseline advances collapse in 50-message windows."
-        ),
-    )
-    max_images_per_request: int = Field(
-        default=64,
-        ge=1,
-        le=100,
-        description=(
-            "Host safety ceiling across generated images. The selected "
-            "history baseline uses the same 64-image ceiling."
-        ),
-    )
-    max_images_per_tool_result: int = Field(default=10, ge=1, le=32)
-    # Production fidelity overrides start here; they are not covered by the
-    # stale calibration-knob block above.
-    keep_sharp_tool_names: List[str] = Field(
-        default_factory=list,
-        description=(
-            "Tool names whose outputs must remain byte-exact native text and "
-            "must never be rendered."
-        ),
-    )
-    keep_sharp_patterns: List[str] = Field(
-        default_factory=list,
-        description=(
-            "Regular expressions that pin matching tool-result text as native "
-            "text, adapting pxpipe's keepSharp callback to serializable "
-            "config."
-        ),
-    )
-    # TODO: STALE: Freeze the pxpipe-compatible cap at 96 after evaluation;
-    # callers should not tune the precision algorithm per agent.
-    factsheet_limit: int = Field(
-        default=96,
-        ge=0,
-        le=512,
-        description=(
-            "Requested precision-fact cap; runtime clamps legacy values to "
-            "pxpipe's maximum of 96."
-        ),
-    )
-    # TODO: STALE: Freeze this as the production True policy after the
-    # no-factsheet ablation and remove the runtime knob.
-    emit_factsheet: bool = Field(
-        default=True,
-        description=(
-            "Attach bounded precision facts as native text beside rendered "
-            "images. Disable only for controlled ablation experiments."
-        ),
-    )
-    # TODO: STALE: Benchmark leakage auditing and the rich evaluation receipt
-    # opt-in only; remove before production.
-    record_factsheet_text: bool = Field(
-        default=False,
-        description=(
-            "Include factsheet fragments in audit receipts. This is intended "
-            "for benchmark leakage checks and may expose source snippets."
-        ),
-    )
-    # TODO: STALE: Alternate profile selection exists only for old
-    # render-density benchmark manifests. The production transform ignores
-    # this field and uses the immutable internal PRODUCTION_RECIPE.
-    render_profile: Literal["calibrated", "5x8", "7x10", "9x12"] = "calibrated"
-    # TODO: STALE: Retained only so old benchmark manifests still parse. The
-    # production transform ignores it and uses v0_pxpipe from its immutable
-    # internal recipe.
-    render_variant: Literal[
-        "v0_pxpipe",
-        "v1_dark",
-        "v2_square",
-        "v3_jbmono10",
-        "v4_preserve_newlines",
-        "density_640x384_5x8",
-        "density_768x512_5x8",
-        "density_960x512_5x8",
-        "density_1280x640_5x8",
-        "density_1568x728_5x8",
-        "density_1920x896_5x8",
-        "density_1568x728_jbmono10",
-        "density_1568x728_jbmono12",
-        "format_light_regular",
-        "format_dark_regular",
-        "format_light_bold",
-        "format_dark_bold",
-        "format_dark_amber",
-        "format_light_blue",
-    ] = Field(
-        default="v0_pxpipe",
-        description=(
-            "Controlled renderer ablation. v0_pxpipe preserves the "
-            "historical pxpipe-aligned raster path; every other value changes "
-            "one declared image dimension and is recorded in receipts and "
-            "benchmark manifests."
-        ),
-    )
-    # TODO: STALE: These cost-model parameters remain for old benchmark
-    # manifests. The production gate reads the frozen internal recipe;
-    # provider usage remains the external measurement.
-    pixels_per_token: float = Field(
-        default=750.0,
-        gt=0,
-        description=(
-            "TODO: STALE evaluation estimate only; the production gate uses "
-            "pxpipe's per-image 28px patch formula. Paired provider usage "
-            "remains the source of truth for reported savings."
-        ),
-    )
-    image_cost_safety_margin: float = Field(
-        default=1.10,
-        ge=1.0,
-        le=2.0,
-        description=(
-            "TODO: STALE benchmark value retained for manifest compatibility; "
-            "production uses the immutable recipe's 1.10 multiplier."
-        ),
-    )
-    chars_per_text_token: float = Field(
-        default=4.0,
-        ge=1.0,
-        le=8.0,
-        description=(
-            "TODO: STALE benchmark value retained for manifest compatibility; "
-            "production fallback is pinned by the immutable recipe."
-        ),
-    )
-    max_visual_cost_ratio: float = Field(
-        default=0.90,
-        ge=0.5,
-        le=2.0,
-        description=(
-            "TODO: STALE benchmark value retained for manifest compatibility; "
-            "production requires the complete replacement to cost less than "
-            "90% of the removed native context."
-        ),
-    )
-    emit_recoverable: bool = Field(
-        default=True,
-        description=(
-            "Expose request-local exact recovery ids and register the bounded "
-            "recover_visual_context tool."
-        ),
-    )
-    # TODO: STALE: Paired OFF/ON benchmark control; remove before production.
-    experiment_arm: Literal["off", "on", "on_nofactsheet"] = "on"
-    # TODO: STALE: Local benchmark receipt sink; remove or replace with the
-    # production observability policy before release.
-    receipt_dir: Optional[str] = Field(
-        default=None,
-        description=(
-            "Temporary benchmark directory for reviewer PNG artifacts and "
-            "request/trace receipt correlation."
-        ),
-    )
-
-    @field_validator("factsheet_limit")
-    @classmethod
-    def _clamp_pxpipe_factsheet_limit(cls, value: int) -> int:
-        """Load legacy limits without retaining non-pxpipe behavior."""
-        return min(96, value)
 
 
 class LightContextConfig(BaseModel):
@@ -1224,8 +981,8 @@ class LightContextConfig(BaseModel):
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
     )
-    visual_compression_config: VisualCompressionConfig = Field(
-        default_factory=VisualCompressionConfig,
+    visual_compact_config: VisualCompactConfig = Field(
+        default_factory=VisualCompactConfig,
     )
 
     @model_validator(mode="after")

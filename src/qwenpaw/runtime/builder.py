@@ -198,12 +198,7 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        # TODO: STALE: Headless visual-compression evaluation only. Remove
-        # this in-memory config source with the temporary evaluation CLI;
-        # production assembly should always load the persisted agent config.
-        agent_config = getattr(ctx, "agent_config", None)
-        if agent_config is None:
-            agent_config = load_agent_config(agent_id)
+        agent_config = load_agent_config(agent_id)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_coding_project(
             agent_config,
@@ -453,9 +448,6 @@ class AgentBuilder:
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
             model_slot_override=model_slot_override,
-            # TODO: STALE: Keeps the temporary headless evaluation profile
-            # consistent with the builder. Remove with that evaluation path.
-            agent_config_override=agent_config,
         )
         if formatter is not None:
             innermost = model
@@ -717,9 +709,9 @@ class AgentBuilder:
     ) -> list[Any]:
         """Collect the optional visual-context recovery tool."""
         config = (
-            agent_config.running.light_context_config.visual_compression_config
+            agent_config.running.light_context_config.visual_compact_config
         )
-        if not config.enabled or not config.emit_recoverable:
+        if not config.enabled:
             return []
 
         from ..agents.context.visual_compression.runtime.recovery import (
@@ -1166,7 +1158,7 @@ class AgentBuilder:
         )
 
         visual_config = (
-            agent_config.running.light_context_config.visual_compression_config
+            agent_config.running.light_context_config.visual_compact_config
         )
         mws.append(
             VisualCompressionMiddleware(visual_config),

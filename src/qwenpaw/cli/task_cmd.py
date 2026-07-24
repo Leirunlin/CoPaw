@@ -84,23 +84,7 @@ def _read_instruction(raw: str) -> str:
     return raw
 
 
-def _build_headless_workspace(workspace_dir: Path, agent_id: str):
-    """Create an unstarted UI-equivalent workspace with builtin tools.
-
-    TODO: STALE: This UI-parity workspace exists for the temporary visual
-    benchmark. Restore the simpler headless task path when that suite is gone.
-    """
-    from ..agents.tools import discover_builtin_tool_funcs
-    from ..app.workspace.workspace import Workspace
-
-    workspace = Workspace(agent_id=agent_id, workspace_dir=str(workspace_dir))
-    workspace.bootstrap_plugins(
-        builtin_tool_funcs=discover_builtin_tool_funcs(),
-    )
-    return workspace
-
-
-async def _run_task(  # pylint: disable=R0912,R0915
+async def _run_task(
     instruction: str,
     agent_config,
     request_context: dict[str, str],
@@ -108,18 +92,10 @@ async def _run_task(  # pylint: disable=R0912,R0915
     timeout: int,
     output_dir: str | None,
     skills_dir: str | None = None,
-    # TODO: STALE: Seeded context and scripted turns are benchmark inputs.
-    seed_context: list[dict] | None = None,
-    scripted_turns: list[str] | None = None,
 ) -> dict:
     from types import SimpleNamespace
 
-    from agentscope.message import (
-        Msg,
-        TextBlock,
-        ToolCallBlock,
-        ToolResultBlock,
-    )
+    from agentscope.message import Msg
 
     from ..runtime.builder import AgentBuilder
     from ..schemas import AgentRequest
@@ -131,38 +107,6 @@ async def _run_task(  # pylint: disable=R0912,R0915
         base_workspace = Path(agent_config.workspace_dir).expanduser()
 
     with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
-        # TODO: STALE: Benchmark UI-parity setup. Headless tasks bypass the
-        # normal PRE_DISPATCH lifecycle hook, so
-        # establish the same ContextVars explicitly. This is required both
-        # for workspace-scoped tools and per-session usage traces.
-        from ..app.agent_context import (
-            set_current_agent_id,
-            set_current_channel,
-            set_current_session_id as set_app_session_id,
-            set_current_user_id,
-        )
-        from ..config.context import (
-            set_current_session_id,
-            set_current_workspace_dir,
-        )
-
-        session_id = request_context.get("session_id", "headless-task")
-        set_current_agent_id(request_context.get("agent_id", "default"))
-        set_current_session_id(session_id)
-        set_app_session_id(session_id)
-        set_current_user_id(request_context.get("user_id", "headless"))
-        set_current_channel(request_context.get("channel", "console"))
-        if workspace is not None:
-            set_current_workspace_dir(workspace)
-        # Mirror the UI runtime's local workspace/tool registry. Previously
-        # headless tasks used ``ctx.workspace=None`` and silently lost every
-        # normal file/search/edit tool.
-        runtime_workspace = None
-        if workspace is not None:
-            runtime_workspace = _build_headless_workspace(
-                workspace,
-                request_context.get("agent_id", "default"),
-            )
         req = AgentRequest(
             input=[
                 {
@@ -170,10 +114,9 @@ async def _run_task(  # pylint: disable=R0912,R0915
                     "content": [{"type": "text", "text": instruction}],
                 },
             ],
-            session_id=session_id,
+            session_id=request_context.get("session_id", "headless-task"),
             user_id=request_context.get("user_id", "headless"),
             channel=request_context.get("channel", "console"),
-            request_context=request_context,
         )
         ctx = SimpleNamespace(
             request=req,
@@ -182,103 +125,28 @@ async def _run_task(  # pylint: disable=R0912,R0915
             root_session_id=req.session_id,
             root_agent_id=request_context.get("agent_id", "default"),
             workspace_dir=workspace,
-            workspace=runtime_workspace,
+            workspace=None,
             app_services=None,
-            # TODO: STALE: Explicit override keeps --model and experiment-arm
-            # changes
-            # isolated in memory; AgentBuilder otherwise loads agent.json.
-            agent_config=agent_config,
+            agent_config=None,
             session_state=None,
         )
         builder = AgentBuilder()
         agent = await builder.build(ctx)
-        # TODO: STALE: Direct state seeding is benchmark-only.
-        if seed_context:
-            agent.state.context.extend(
-                Msg.model_validate(item) for item in seed_context
-            )
-        # TODO: STALE: Imported benchmark history can contain hundreds of
-        # historical tool calls. Execution metrics must start after seeding
-        # or a recovery regression is hidden inside the transcript baseline.
-        execution_context_start = len(
-            list(getattr(agent.state, "context", []) or []),
-        )
 
         t0 = time.monotonic()
-        native_usage = None
-        # TODO: STALE: Multi-phase records support scripted benchmark tasks.
-        phase_responses: list[str] = []
-        phase_records: list[dict[str, object]] = []
         try:
-            from ..token_usage.model_wrapper import TokenRecordingModelWrapper
-
-            # TODO: STALE: Per-call tracing is evaluation-only. Remove this
-            # opt-in together with scripted turns and the visual benchmark.
-            TokenRecordingModelWrapper.start_trace_for_session(session_id)
-            trace_length = TokenRecordingModelWrapper.trace_length_for_session
-            prompts = [*(scripted_turns or []), instruction]
-            response = None
-            for phase_index, prompt in enumerate(prompts):
-                phase_started = time.monotonic()
-                message_start = len(
-                    list(getattr(agent.state, "context", []) or []),
-                )
-                call_start = trace_length(session_id)
-                remaining = max(0.001, timeout - (time.monotonic() - t0))
-                response = await asyncio.wait_for(
-                    agent.reply(
-                        [
-                            Msg(
-                                name="user",
-                                role="user",
-                                content=[TextBlock(text=prompt)],
-                            ),
-                        ],
-                    ),
-                    timeout=remaining,
-                )
-                phase_responses.append(
-                    response.get_text_content() if response else "",
-                )
-                phase_tool_calls = []
-                phase_messages = list(
-                    getattr(agent.state, "context", []) or [],
-                )[message_start:]
-                for message in phase_messages:
-                    for block in getattr(message, "content", []) or []:
-                        if isinstance(block, ToolCallBlock):
-                            phase_tool_calls.append(
-                                {"name": block.name, "input": block.input},
-                            )
-                phase_records.append(
-                    {
-                        "index": phase_index,
-                        "prompt": prompt,
-                        "response": phase_responses[-1],
-                        "tool_calls": phase_tool_calls,
-                        "call_start": call_start,
-                        "call_end": trace_length(session_id),
-                        "elapsed_seconds": round(
-                            time.monotonic() - phase_started,
-                            4,
-                        ),
-                    },
-                )
+            response = await asyncio.wait_for(
+                agent.reply(
+                    [Msg(name="user", role="user", content=instruction)],
+                ),
+                timeout=timeout,
+            )
             elapsed = time.monotonic() - t0
             result: dict = {
                 "status": "success",
                 "elapsed_seconds": round(elapsed, 2),
                 "response": (response.get_text_content() if response else ""),
-                "phase_responses": phase_responses,
-                "phase_records": phase_records,
-                "scripted_turn_count": len(scripted_turns or []),
             }
-            # One AgentScope reply usage covers its internal tool loop, but it
-            # does not cover earlier replies in a scripted multi-turn task.
-            # For those tasks the per-call recorder trace below is the only
-            # correctly aggregated provider source.
-            if len(prompts) == 1:
-                native_usage = getattr(response, "usage", None)
         except asyncio.TimeoutError:
             elapsed = time.monotonic() - t0
             result = {
@@ -286,8 +154,6 @@ async def _run_task(  # pylint: disable=R0912,R0915
                 "elapsed_seconds": round(elapsed, 2),
                 "timeout_seconds": timeout,
                 "response": "",
-                "phase_responses": phase_responses,
-                "phase_records": phase_records,
             }
         except Exception as exc:
             elapsed = time.monotonic() - t0
@@ -296,87 +162,12 @@ async def _run_task(  # pylint: disable=R0912,R0915
                 "elapsed_seconds": round(elapsed, 2),
                 "error": str(exc),
                 "response": "",
-                "phase_responses": phase_responses,
-                "phase_records": phase_records,
             }
 
-        # TODO: STALE: Execution counters are benchmark report evidence.
-        context_messages = list(getattr(agent.state, "context", []) or [])
-        live_messages = context_messages[execution_context_start:]
-        tool_call_names: dict[str, str] = {}
-        tool_result_ids: set[str] = set()
-        for message in live_messages:
-            for block in getattr(message, "content", []) or []:
-                if isinstance(block, ToolCallBlock):
-                    tool_call_names.setdefault(block.id, block.name)
-                elif isinstance(block, ToolResultBlock):
-                    tool_result_ids.add(block.id)
-        tool_calls_by_name: dict[str, int] = {}
-        for name in tool_call_names.values():
-            tool_calls_by_name[name] = tool_calls_by_name.get(name, 0) + 1
-        result["execution"] = {
-            "agent_iterations": int(getattr(agent.state, "cur_iter", 0) or 0),
-            "context_messages": len(context_messages),
-            "live_context_messages": len(live_messages),
-            "tool_calls": len(tool_call_names),
-            "tool_results": len(tool_result_ids),
-            "tool_calls_by_name": tool_calls_by_name,
-        }
-
-    # TODO: STALE: Per-call aggregation and trace export are benchmark-only.
     usage: dict = {}
-    trace: list[dict] = []
     try:
-        from ..token_usage.model_wrapper import TokenRecordingModelWrapper
-
-        trace = TokenRecordingModelWrapper.pop_trace_for_session(
-            request_context.get("session_id", "headless-task"),
-        )
-        if trace:
-            usage = {
-                "input_tokens": sum(
-                    int(call.get("prompt_tokens", 0) or 0) for call in trace
-                ),
-                "output_tokens": sum(
-                    int(call.get("completion_tokens", 0) or 0)
-                    for call in trace
-                ),
-                "llm_calls": len(trace),
-            }
-        native_input = int(
-            (
-                getattr(native_usage, "input_tokens", 0) or 0
-                if native_usage is not None
-                else 0
-            ),
-        )
-        native_output = int(
-            (
-                getattr(native_usage, "output_tokens", 0) or 0
-                if native_usage is not None
-                else 0
-            ),
-        )
-        if native_input > 0 or native_output > 0:
-            recorded_input = int(usage.get("input_tokens", 0) or 0)
-            recorded_output = int(usage.get("output_tokens", 0) or 0)
-            usage.update(
-                {
-                    "input_tokens": native_input,
-                    "output_tokens": native_output,
-                    "source": "agentscope_message",
-                },
-            )
-            if (recorded_input, recorded_output) != (
-                native_input,
-                native_output,
-            ) and (recorded_input > 0 or recorded_output > 0):
-                usage["recorder_tokens"] = {
-                    "input_tokens": recorded_input,
-                    "output_tokens": recorded_output,
-                }
         model = getattr(agent, "model", None)
-        if model is not None and not trace:
+        if model is not None:
             monitor = getattr(model, "monitor", None)
             if monitor is not None:
                 metrics = (
@@ -390,7 +181,6 @@ async def _run_task(  # pylint: disable=R0912,R0915
     except Exception:
         logger.debug("Failed to extract token usage", exc_info=True)
     result["usage"] = usage
-    result["trace"] = trace
 
     if output_dir:
         out = Path(output_dir)

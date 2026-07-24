@@ -160,7 +160,7 @@ def message_body(msg: Msg) -> str:
 
 
 def message_segments(msg: Msg, turn: int) -> tuple[str, str]:
-    """Serialize a turn and pxpipe's width-identical role-color slot string."""
+    """Serialize one turn and its width-identical role-color slots."""
     groups: list[tuple[str, list[str]]] = []
     for block in msg.content:
         text = block_text(block)
@@ -197,17 +197,12 @@ def message_segments(msg: Msg, turn: int) -> tuple[str, str]:
     return "\n\n".join(text_segments), "\n\n".join(slot_segments)
 
 
-def message_text(msg: Msg, turn: int) -> str:
-    """TODO: STALE: Test/export convenience; production uses segments."""
-    return message_segments(msg, turn)[0]
-
-
-def estimate_request_tokens(
+def estimate_native_message_tokens(
     messages: list[Msg],
     tools: list[dict] | None,
     chars_per_token: float = 4.0,
 ) -> int:
-    """TODO: STALE: Estimate text for opt-in local benchmark receipts only."""
+    """Estimate native tokens removed by a history replacement."""
     parts: list[str] = []
     for msg in messages:
         parts.append(msg.role)
@@ -227,7 +222,7 @@ __all__ = [
     "block_text",
     "compact_slab_whitespace",
     "data_blocks",
-    "estimate_request_tokens",
+    "estimate_native_message_tokens",
     "inspect_media",
     "MediaInventory",
     "media_kind",
@@ -235,6 +230,5 @@ __all__ = [
     "message_has_native_media",
     "message_body",
     "message_segments",
-    "message_text",
     "user_text",
 ]

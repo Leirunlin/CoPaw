@@ -10,9 +10,8 @@ from typing import Any
 from agentscope.message import Msg, TextBlock
 
 from ..config import (
-    PRODUCTION_RECIPE,
-    VisualCompressionRecipe,
-    config_value,
+    CHARS_PER_TEXT_TOKEN_FALLBACK,
+    EffortPreset,
 )
 from ..rendering import (
     estimate_text_pages,
@@ -25,9 +24,8 @@ from .budget import profitable as _profitable
 from .messages import compact_slab_whitespace as _compact_slab_whitespace
 from .messages import data_blocks as _data_blocks
 from .receipt import CompressionReceipt
-from .receipt import factsheet_for_recipe as _factsheet_for_recipe
+from .receipt import factsheet_for_preset as _factsheet_for_preset
 from .receipt import make_recovery_id
-from .receipt import record_factsheet as _record_factsheet
 from .receipt import record_pages as _record_pages
 from .tool_schemas import plan_qwenpaw_tool_documentation
 
@@ -57,7 +55,7 @@ _QWENPAW_ENV_MARKERS = (
 
 
 def _utf16_code_units(text: str) -> int:
-    """Count UTF-16 code units to preserve pxpipe threshold semantics."""
+    """Count UTF-16 code units used by compression thresholds."""
     return len(text.encode("utf-16-le")) // 2
 
 
@@ -122,9 +120,7 @@ def _plan_system_partition(
                 if relocate_env_tail:
                     env_tail = env_context
                 else:
-                    # Direct/evaluation callers may not carry QwenPaw's
-                    # external-user tag. Keep env native instead of inventing
-                    # a user turn or losing host context.
+                    # Keep host context native without an external-user tag.
                     replacement_parts.append(env_context)
         if visual_text:
             visual_parts.append(visual_text)
@@ -138,47 +134,30 @@ def _plan_system_partition(
 def compress_static_context(  # pylint: disable=R0912,R0915
     messages: list[Msg],
     tools: list[dict] | None,
-    config: Any,
     receipt: CompressionReceipt,
     pages_left: int,
-    recipe: VisualCompressionRecipe = PRODUCTION_RECIPE,
+    preset: EffortPreset,
     *,
     relocate_env_tail: bool = False,
 ) -> tuple[list[Msg], list[dict] | None, int, str]:
     """Atomically image QwenPaw system/tool prose after all gates pass."""
-    # TODO: STALE: Optional rich evidence exists only for local benchmarks.
-    evaluation = receipt.evaluation
     parts: list[str] = []
     removed_text_parts: list[str] = []
     system_replacements: dict[int, str] = {}
     env_tail = ""
-    # TODO: STALE: Per-region switches exist only for benchmark ablations.
-    # Production always applies the immutable recipe to eligible regions.
-    compress_system = (
-        bool(config_value(config, "compress_system", True))
-        if evaluation is not None
-        else True
+    (
+        system_parts,
+        removed_text_parts,
+        system_replacements,
+        env_tail,
+    ) = _plan_system_partition(
+        messages,
+        relocate_env_tail=relocate_env_tail,
     )
-    if compress_system:
-        (
-            system_parts,
-            removed_text_parts,
-            system_replacements,
-            env_tail,
-        ) = _plan_system_partition(
-            messages,
-            relocate_env_tail=relocate_env_tail,
-        )
-        parts.extend(system_parts)
+    parts.extend(system_parts)
 
     new_tools = tools
-    # TODO: STALE: Per-region switches exist only for benchmark ablations.
-    compress_tools = (
-        bool(config_value(config, "compress_tools", True))
-        if evaluation is not None
-        else True
-    )
-    if tools and compress_tools:
+    if tools:
         new_tools, tool_documentation = plan_qwenpaw_tool_documentation(tools)
         if tool_documentation:
             parts.append(tool_documentation)
@@ -186,50 +165,24 @@ def compress_static_context(  # pylint: disable=R0912,R0915
     if not parts or pages_left <= 0:
         return messages, tools, pages_left, ""
     text = "\n\n".join(parts)
-    # TODO: STALE: Alternate render variants are benchmark ablations.
-    # Production resolves this to the immutable recipe's single v0 behavior.
-    render_variant = recipe.render_variant.name
     prepared_text = prepare_render_text(
         _compact_slab_whitespace(text),
-        render_variant,
     )
-    # TODO: STALE: ``min_static_tokens`` is a benchmark-only secondary floor.
-    token_floor = (
-        int(config_value(config, "min_static_tokens", 0))
-        if evaluation is not None
-        else 0
-    )
-    if _utf16_code_units(prepared_text) < recipe.static_min_chars or (
-        token_floor > 0 and _count_text_tokens(text) < token_floor
-    ):
-        if evaluation is not None:
-            # TODO: STALE: Benchmark passthrough counter.
-            evaluation.passthrough["below_min_tokens"] = (
-                evaluation.passthrough.get("below_min_tokens", 0) + 1
-            )
+    if _utf16_code_units(prepared_text) < preset.static_min_chars:
         return messages, tools, pages_left, ""
-    sheet = _factsheet_for_recipe(text, recipe)
-    emit_recoverable = bool(config_value(config, "emit_recoverable", True))
-    if emit_recoverable:
-        slab_recovery_id = make_recovery_id(
-            text,
-            "static_slab",
-            "system+tools",
-        )
-        end_marker = (
-            "[End of rendered system/tool context. Exact recovery id: "
-            f"{slab_recovery_id}; prefer a precise query or bounded "
-            "line range.]"
-        )
-    else:
-        end_marker = "[End of rendered system/tool context.]"
+    sheet = _factsheet_for_preset(text, preset)
+    recovery_id = make_recovery_id(
+        text,
+        "static_slab",
+        "system+tools",
+    )
+    end_marker = (
+        "[End of rendered system/tool context. Exact recovery id: "
+        f"{recovery_id}; prefer a precise query or bounded line range.]"
+    )
     layout_note = (
-        " Original hard newlines are retained."
-        if recipe.render_variant.layout == "preserve_newlines"
-        else (
-            " The glyph ↵ (U+21B5) marks an original hard line break in "
-            "content; treat it as a real newline."
-        )
+        " The glyph ↵ (U+21B5) marks an original hard line break in "
+        "content; treat it as a real newline."
     )
     render_payload = (
         "=================== SESSION CONFIGURATION PAGES "
@@ -248,37 +201,29 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         "====================== BEGIN RENDERED CONTEXT "
         "======================\n" + prepared_text
     )
-    profile = recipe.render_profile.name
-    resolved_profile = recipe.render_profile
     render_columns = measure_content_columns(
         render_payload,
-        profile,
-        render_variant,
+        preset,
     )
     estimated_pages = estimate_text_pages(
         render_payload,
-        profile,
-        render_variant,
+        preset,
         columns=render_columns,
-        readable_chars_per_image=recipe.readable_chars_per_image,
     )
-    # TODO: STALE: This estimate is written only to benchmark evidence by
-    # ``record_pages``; it does not participate in the production gate.
-    ppt = float(config_value(config, "pixels_per_token", 750.0))
-    cpt = recipe.chars_per_text_token_fallback
-    ratio = recipe.max_visual_cost_ratio
-    safety = recipe.image_cost_safety_margin
     removed_tokens = _count_text_tokens(
         "\n".join(removed_text_parts),
-        cpt,
+        CHARS_PER_TEXT_TOKEN_FALLBACK,
     )
     if tools and new_tools is not tools:
         removed_tokens += max(
             0,
-            _count_text_tokens(json.dumps(tools, ensure_ascii=False), cpt)
+            _count_text_tokens(
+                json.dumps(tools, ensure_ascii=False),
+                CHARS_PER_TEXT_TOKEN_FALLBACK,
+            )
             - _count_text_tokens(
                 json.dumps(new_tools, ensure_ascii=False),
-                cpt,
+                CHARS_PER_TEXT_TOKEN_FALLBACK,
             ),
         )
     replacement_parts = [
@@ -296,30 +241,18 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         text,
         render_payload,
         render_columns,
-        resolved_profile,
-        cpt,
-        ratio,
-        safety,
-        receipt,
+        preset,
         removed_tokens,
         replacement_text=replacement_text,
         estimated_pages=estimated_pages,
     ):
-        if evaluation is not None:
-            # TODO: STALE: Benchmark passthrough counter.
-            evaluation.passthrough["not_profitable"] = (
-                evaluation.passthrough.get("not_profitable", 0) + 1
-            )
         return messages, tools, pages_left, ""
     pages = render_text_pages(
         render_payload,
-        profile,
+        preset,
         pages_left,
-        None,
-        render_variant,
         columns=render_columns,
         atlas_mode="bit",
-        readable_chars_per_image=recipe.readable_chars_per_image,
     )
     if not pages:
         return messages, tools, pages_left, ""
@@ -334,9 +267,6 @@ def compress_static_context(  # pylint: disable=R0912,R0915
     intro: list[Any] = [*_data_blocks(pages)]
     if sheet:
         intro.append(TextBlock(text=sheet))
-        # TODO: STALE: This call only records benchmark counters/text; the
-        # production factsheet is the native TextBlock appended above.
-        _record_factsheet(receipt, sheet, "static_slab", config)
     intro.append(TextBlock(text=end_marker))
     insert_at = 0
     while insert_at < len(messages) and messages[insert_at].role == "system":
@@ -345,11 +275,9 @@ def compress_static_context(  # pylint: disable=R0912,R0915
     messages.insert(insert_at, visual_message)
     _record_pages(
         receipt,
-        pages,
+        len(pages),
         text,
         "static_slab",
-        ppt,
-        emit_recoverable,
         "system+tools",
     )
     return messages, new_tools, pages_left - len(pages), env_tail

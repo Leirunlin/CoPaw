@@ -3,7 +3,6 @@
 
 from .renderer import (
     READABLE_CHARS_PER_IMAGE,
-    RENDERER_ID,
     RenderedPage,
     estimate_text_pages,
     measure_content_columns,
@@ -15,7 +14,6 @@ from .renderer import (
 
 __all__ = [
     "READABLE_CHARS_PER_IMAGE",
-    "RENDERER_ID",
     "RenderedPage",
     "estimate_text_pages",
     "measure_content_columns",

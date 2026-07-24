@@ -9,12 +9,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..config import PRODUCTION_RECIPE
+from ..config import (
+    CANVAS_MAX_HEIGHT,
+    CANVAS_PADDING,
+    CHARS_PER_TEXT_TOKEN_FALLBACK,
+    IMAGE_COST_SAFETY_MARGIN,
+    IMAGE_PATCH_SIZE,
+    MAX_VISUAL_COST_RATIO,
+    EffortPreset,
+)
 
 if TYPE_CHECKING:
-    from ..config import RenderProfile
     from ..rendering import RenderedPage
-    from .receipt import CompressionReceipt
 
 _QWENPAW_PACKAGE_ROOT = Path(__file__).resolve().parents[4]
 _TOKENIZER_JSON = _QWENPAW_PACKAGE_ROOT / "tokenizer" / "tokenizer.json"
@@ -69,36 +75,34 @@ def profitable(
     baseline_text: str,
     rendered_text: str,
     columns: int,
-    profile: "RenderProfile",
-    chars_per_text_token: float,
-    max_visual_cost_ratio: float | None = None,
-    image_cost_safety_margin: float | None = None,
-    receipt: "CompressionReceipt | None" = None,
+    preset: EffortPreset,
     baseline_text_tokens: int | None = None,
     image_count_cap: int | None = None,
     replacement_text: str = "",
     estimated_pages: list["RenderedPage"] | None = None,
 ) -> bool:
-    """Gate a complete text-to-visual replacement at Qwen patch geometry."""
+    """Accept only replacements that reduce estimated request tokens."""
     text_tokens = (
         int(baseline_text_tokens)
         if baseline_text_tokens is not None
-        else count_text_tokens(baseline_text, chars_per_text_token)
+        else count_text_tokens(
+            baseline_text,
+            CHARS_PER_TEXT_TOKEN_FALLBACK,
+        )
     )
     if estimated_pages is None:
         cols = max(1, int(columns))
         rows = 0
         for line in rendered_text.split("\n"):
-            # Preserve pxpipe row geometry by counting UTF-16 code units.
             line_length = len(line.encode("utf-16-le")) // 2
             rows += 1 if line_length == 0 else math.ceil(line_length / cols)
         hard_rows = max(
             1,
-            (profile.max_height - 2 * profile.padding) // profile.line_height,
+            (CANVAS_MAX_HEIGHT - 2 * CANVAS_PADDING) // preset.line_height,
         )
         readable_rows = max(
             1,
-            PRODUCTION_RECIPE.readable_chars_per_image // cols,
+            preset.readable_chars_per_image // cols,
         )
         rows_per_image = min(hard_rows, readable_rows)
         image_count = max(1, math.ceil(rows / rows_per_image))
@@ -109,11 +113,9 @@ def profitable(
             rows_per_image,
             max(1, rows - full_images * rows_per_image),
         )
-        width = 2 * profile.padding + cols * profile.cell_width
-        full_height = (
-            2 * profile.padding + rows_per_image * profile.line_height
-        )
-        last_height = 2 * profile.padding + rows_in_last * profile.line_height
+        width = 2 * CANVAS_PADDING + cols * preset.cell_width
+        full_height = 2 * CANVAS_PADDING + rows_per_image * preset.line_height
+        last_height = 2 * CANVAS_PADDING + rows_in_last * preset.line_height
         dimensions = [
             *((width, full_height) for _ in range(full_images)),
             (width, last_height),
@@ -122,41 +124,25 @@ def profitable(
         dimensions = [(page.width, page.height) for page in estimated_pages]
 
     def patch_tokens(width: int, height: int) -> int:
-        patch = PRODUCTION_RECIPE.image_patch_size
-        return math.ceil(width / patch) * math.ceil(height / patch)
+        return math.ceil(width / IMAGE_PATCH_SIZE) * math.ceil(
+            height / IMAGE_PATCH_SIZE,
+        )
 
     patch_sum = sum(
         patch_tokens(width, height) for width, height in dimensions
     )
-    safety = (
-        PRODUCTION_RECIPE.image_cost_safety_margin
-        if image_cost_safety_margin is None
-        else float(image_cost_safety_margin)
+    image_tokens = math.ceil(
+        patch_sum * IMAGE_COST_SAFETY_MARGIN,
     )
-    ratio = (
-        PRODUCTION_RECIPE.max_visual_cost_ratio
-        if max_visual_cost_ratio is None
-        else float(max_visual_cost_ratio)
-    )
-    image_tokens = math.ceil(patch_sum * max(1.0, safety))
     replacement_tokens = count_text_tokens(
         replacement_text,
-        chars_per_text_token,
+        CHARS_PER_TEXT_TOKEN_FALLBACK,
     )
     replacement_tokens += image_tokens
     accepted = replacement_tokens < text_tokens * max(
         0.5,
-        ratio,
+        MAX_VISUAL_COST_RATIO,
     )
-    evaluation = receipt.evaluation if receipt is not None else None
-    if evaluation is not None:
-        # TODO: STALE: These counters are benchmark evidence. Remove this
-        # mutation when the temporary evaluation receipt is deleted; the
-        # production decision is only the returned boolean.
-        evaluation.gate_candidates += 1
-        evaluation.gate_accepted += int(accepted)
-        evaluation.gate_text_tokens += text_tokens
-        evaluation.gate_visual_tokens += replacement_tokens
     return accepted
 
 

@@ -37,10 +37,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 _AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
-# TODO: STALE: This AgentScope metadata-sidecar compatibility fix was needed
-# by seeded benchmark history, but is independent of visual compression. Move
-# it with its focused tests to a separate PR or restore the original path
-# before submitting the PawFocus production PR.
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
 
 
@@ -499,13 +495,8 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                     if isinstance(block, dict)
                     else getattr(block, "metadata", None)
                 )
-                # TODO: STALE: Adjacent metadata-sidecar fix; split or remove
-                # with ``_TOOL_RESULT_METADATA_KEY`` before the visual PR.
-                # AgentScope 2.0 ToolResultBlock has no metadata field unless
-                # a caller explicitly supplied it as a Pydantic extra. Use a
-                # message sidecar otherwise. Msg.metadata is an AgentScope 2.0
-                # field and persists with conversation state; the embedded
-                # notice remains the migration fallback for older messages.
+                # AgentScope ToolResultBlock may not expose metadata. Persist
+                # pruning state on the owning message in that case.
                 if not isinstance(block_metadata, dict):
                     msg_metadata = (
                         msg.setdefault("metadata", {})
