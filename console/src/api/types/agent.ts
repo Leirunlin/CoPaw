@@ -41,6 +41,7 @@ export interface VisualCompressionConfig {
   renderer_version: string;
   precision_version: string;
   enabled: boolean;
+  effort: "low" | "medium" | "high";
   // TODO: STALE: Temporary preflight/benchmark allowlist.
   allowed_models: string[];
   // TODO: STALE: Region ablation switches; freeze the production combination.

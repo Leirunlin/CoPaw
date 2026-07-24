@@ -260,6 +260,7 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         profile,
         render_variant,
         columns=render_columns,
+        readable_chars_per_image=recipe.readable_chars_per_image,
     )
     # TODO: STALE: This estimate is written only to benchmark evidence by
     # ``record_pages``; it does not participate in the production gate.
@@ -318,6 +319,7 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         render_variant,
         columns=render_columns,
         atlas_mode="bit",
+        readable_chars_per_image=recipe.readable_chars_per_image,
     )
     if not pages:
         return messages, tools, pages_left, ""

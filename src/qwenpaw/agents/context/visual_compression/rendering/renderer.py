@@ -72,6 +72,20 @@ _DENSE_FONT = _ASSET_ROOT / "Spleen-5x8.otb"
 _FALLBACK_FONT = _ASSET_ROOT / "Unifont-16.0.04.otf"
 _JBM10_DENSE_ATLAS_SOURCE = _ASSET_ROOT / "atlas-gray-jbmono10.ts"
 _INVERT_BYTES = bytes.maketrans(bytes(range(256)), bytes(reversed(range(256))))
+_BIT_COVERAGE_TO_PIXEL = bytes(
+    255 if coverage == 0 else 0 for coverage in range(256)
+)
+_COVERAGE_TO_ROLE_1 = bytes(
+    0 if coverage == 0 else 1 for coverage in range(256)
+)
+_COVERAGE_TO_ROLE_2 = bytes(
+    0 if coverage == 0 else 2 for coverage in range(256)
+)
+_ROLE_TO_MASK = {
+    slot: bytes(255 if value == slot else 0 for value in range(256))
+    for slot in (1, 2)
+}
+_ROLE_PALETTE = ((20, 120, 50), (30, 70, 180))
 _INK_PALETTES: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
     # TODO: STALE: Color palettes are renderer-format ablations.
     "amber": ((0, 0, 0), (255, 191, 48)),
@@ -148,6 +162,56 @@ def _atlas_for_profile(profile: RenderProfile) -> _DenseGrayAtlas:
     return _load_dense_gray_atlas()
 
 
+def _atlas_for_key(key: str) -> _DenseGrayAtlas:
+    if key == "jbmono10":
+        return _load_gray_atlas(_JBM10_DENSE_ATLAS_SOURCE, 6, 11)
+    return _load_dense_gray_atlas()
+
+
+@lru_cache(maxsize=4096)
+def _dense_glyph_scanlines(
+    atlas_key: str,
+    rank: int,
+    atlas_mode: str,
+) -> tuple[int, tuple[bytes, ...]]:
+    """Return immutable pixel rows for one dense glyph."""
+    atlas = _atlas_for_key(atlas_key)
+    cells = 2 if atlas.wide_flags[rank] == 1 else 1
+    src_width = cells * atlas.cell_width
+    src_offset = atlas.offsets[rank]
+    pixel_table = (
+        _BIT_COVERAGE_TO_PIXEL if atlas_mode == "bit" else _INVERT_BYTES
+    )
+    pixel_rows: list[bytes] = []
+    for glyph_y in range(atlas.cell_height):
+        start = src_offset + glyph_y * src_width
+        coverage = atlas.pixels[start : start + src_width]
+        pixel_rows.append(coverage.translate(pixel_table))
+    return src_width, tuple(pixel_rows)
+
+
+@lru_cache(maxsize=1024)
+def _dense_glyph_role_scanlines(
+    atlas_key: str,
+    rank: int,
+    role_slot: int,
+) -> tuple[bytes, ...]:
+    """Return sparse role-mask rows only for glyphs that need role ink."""
+    if role_slot not in {1, 2}:
+        raise ValueError(f"unknown role slot: {role_slot}")
+    atlas = _atlas_for_key(atlas_key)
+    cells = 2 if atlas.wide_flags[rank] == 1 else 1
+    src_width = cells * atlas.cell_width
+    src_offset = atlas.offsets[rank]
+    role_table = _COVERAGE_TO_ROLE_1 if role_slot == 1 else _COVERAGE_TO_ROLE_2
+    role_rows: list[bytes] = []
+    for glyph_y in range(atlas.cell_height):
+        start = src_offset + glyph_y * src_width
+        coverage = atlas.pixels[start : start + src_width]
+        role_rows.append(coverage.translate(role_table))
+    return tuple(role_rows)
+
+
 @lru_cache(maxsize=16)
 def _load_fonts(
     size: int,
@@ -184,6 +248,7 @@ def _load_fonts(
     return primary or default, fallback or primary or default
 
 
+@lru_cache(maxsize=4096)
 def _char_cells(char: str) -> int:
     if not char:
         return 0
@@ -313,14 +378,18 @@ def _profile_with_columns(
     return replace(profile, width=width), actual_columns
 
 
-def render_rows_per_page(profile: RenderProfile, columns: int) -> int:
+def render_rows_per_page(
+    profile: RenderProfile,
+    columns: int,
+    readable_chars_per_image: int = READABLE_CHARS_PER_IMAGE,
+) -> int:
     hard_rows = max(
         1,
         (profile.max_height - 2 * profile.padding) // profile.line_height,
     )
     readable_rows = max(
         1,
-        READABLE_CHARS_PER_IMAGE // max(1, int(columns)),
+        readable_chars_per_image // max(1, int(columns)),
     )
     return min(hard_rows, readable_rows)
 
@@ -358,6 +427,18 @@ def _page_render_lines(
     columns: int,
     max_lines: int,
 ) -> list[str]:
+    # ``page_lines`` already came from ``_visual_lines``. Re-running the full
+    # minify/escape/wrap pipeline is only observable when a wrapped row ends in
+    # whitespace, or when a glyph is wider than an explicitly forced one-column
+    # canvas. Preserve those pxpipe edge semantics while avoiding the duplicate
+    # work on normal render-sized pages.
+    if (
+        page_lines
+        and columns >= 2
+        and len(page_lines) <= max(1, max_lines)
+        and all(not line.endswith((" ", "\t")) for line in page_lines)
+    ):
+        return page_lines
     chunk = "\n".join(page_lines)
     return _visual_lines(chunk, profile, columns)[: max(1, max_lines)]
 
@@ -394,14 +475,20 @@ def page_count_for_text(
     render_variant: str = PRODUCTION_RECIPE.render_variant.name,
     *,
     columns: int | None = None,
+    readable_chars_per_image: int = READABLE_CHARS_PER_IMAGE,
 ) -> int:
     profile = resolve_render_profile(profile_name, render_variant)
     profile, actual_columns = _profile_with_columns(profile, columns)
-    per_page = render_rows_per_page(profile, actual_columns)
+    per_page = render_rows_per_page(
+        profile,
+        actual_columns,
+        readable_chars_per_image,
+    )
     return len(
         _split_visual_pages(
             _visual_lines(text, profile, actual_columns),
             per_page,
+            readable_chars_per_image,
         ),
     )
 
@@ -412,14 +499,23 @@ def estimate_text_pages(
     render_variant: str = PRODUCTION_RECIPE.render_variant.name,
     *,
     columns: int | None = None,
+    readable_chars_per_image: int = READABLE_CHARS_PER_IMAGE,
 ) -> list[RenderedPage]:
     """Return geometry-only pages for a gate without rasterizing PNG bytes."""
     profile = resolve_render_profile(profile_name, render_variant)
     profile, actual_columns = _profile_with_columns(profile, columns)
     lines = _visual_lines(text, profile, actual_columns)
-    per_page = render_rows_per_page(profile, actual_columns)
+    per_page = render_rows_per_page(
+        profile,
+        actual_columns,
+        readable_chars_per_image,
+    )
     pages: list[RenderedPage] = []
-    for page_lines in _split_visual_pages(lines, per_page):
+    for page_lines in _split_visual_pages(
+        lines,
+        per_page,
+        readable_chars_per_image,
+    ):
         rendered_lines = _page_render_lines(
             page_lines,
             profile,
@@ -526,6 +622,43 @@ def _draw_grid_line(
     flush()
 
 
+@lru_cache(maxsize=6)
+def _role_blend_lut(channel: int) -> bytes:
+    """Map grayscale pixels to one role-ink channel with JS round parity."""
+    return bytes(
+        255 - ((255 - gray) * (255 - channel) + 127) // 255
+        for gray in range(256)
+    )
+
+
+def _role_colored_image(
+    framebuffer: bytearray,
+    role_mask: bytearray,
+    width: int,
+    height: int,
+) -> Image.Image | None:
+    """Apply sparse role colors with Pillow's C-level LUT and mask paths."""
+    present_slots = [slot for slot in (1, 2) if role_mask.count(slot) > 0]
+    if not present_slots:
+        return None
+
+    size = (width, height)
+    gray = Image.frombytes("L", size, bytes(framebuffer))
+    channels = [gray.copy(), gray.copy(), gray.copy()]
+    role_bytes = bytes(role_mask)
+    for slot in present_slots:
+        mask = Image.frombytes(
+            "L",
+            size,
+            role_bytes.translate(_ROLE_TO_MASK[slot]),
+        )
+        color = _ROLE_PALETTE[slot - 1]
+        for channel_index, channel in enumerate(color):
+            colored = gray.point(_role_blend_lut(channel))
+            channels[channel_index].paste(colored, mask=mask)
+    return Image.merge("RGB", tuple(channels))
+
+
 def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
     lines: list[str],
     profile: RenderProfile,
@@ -544,8 +677,10 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
     role_mask = (
         bytearray(profile.width * height) if slot_lines is not None else None
     )
+    atlas_key = "jbmono10" if profile.name.endswith("-jbmono10") else "default"
     dropped = 0
     dropped_codepoints: dict[str, int] = {}
+    scanline_blit_safe = True
     for row, line in enumerate(lines):
         slot_line = (
             slot_lines[row] if slot_lines and row < len(slot_lines) else ""
@@ -557,6 +692,7 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
             glyph_atlas = atlas
             rank = glyph_atlas.ranks.get(codepoint)
             glyph_y_offset = 0
+            glyph_atlas_key = atlas_key
             if rank is None and profile.name.endswith("-jbmono10"):
                 # TODO: STALE: Alternate-font fallback belongs only to the
                 # temporary jbmono10 renderer ablation.
@@ -565,73 +701,105 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
                 glyph_atlas = _load_dense_gray_atlas()
                 rank = glyph_atlas.ranks.get(codepoint)
                 glyph_y_offset = profile.line_height - glyph_atlas.cell_height
-            fallback_cells = _char_cells(char)
+                glyph_atlas_key = "default"
             if rank is None:
                 dropped += 1
                 key = f"U+{codepoint:04X}"
                 dropped_codepoints[key] = dropped_codepoints.get(key, 0) + 1
-                col += fallback_cells
+                col += _char_cells(char)
                 continue
             wide = glyph_atlas.wide_flags[rank] == 1
             cells = 2 if wide else 1
             src_width = cells * glyph_atlas.cell_width
             src_offset = glyph_atlas.offsets[rank]
             base_x = profile.padding + col * profile.cell_width
-            for glyph_y in range(glyph_atlas.cell_height):
-                dst = (
-                    base_y + glyph_y_offset + glyph_y
-                ) * profile.width + base_x
-                src = src_offset + glyph_y * src_width
-                for glyph_x in range(src_width):
-                    coverage = glyph_atlas.pixels[src + glyph_x]
-                    if coverage:
-                        if atlas_mode == "bit":
-                            coverage = 255
-                        pixel = 255 - coverage
-                        index = dst + glyph_x
-                        # Match Uint8Array's linear indexing in pxpipe. A
-                        # caller that explicitly forces fewer columns than a
-                        # wide glyph occupies can spill the glyph's final
-                        # pixels into the next scanline; writes beyond the
-                        # complete framebuffer are ignored. Production width
-                        # measurement prevents this edge, but the primitive
-                        # contract remains byte-for-byte compatible.
-                        if index >= len(framebuffer):
-                            continue
-                        if pixel < framebuffer[index]:
-                            framebuffer[index] = pixel
-                        if role_mask is not None and char_index < len(
-                            slot_line,
-                        ):
-                            mark = slot_line[char_index]
-                            if mark == ROLE_MARK_USER:
-                                role_mask[index] = 1
-                            elif mark == ROLE_MARK_ASSISTANT:
-                                role_mask[index] = 2
-            col += cells
-    if role_mask is not None and any(role_mask):
-        rgb = bytearray(profile.width * height * 3)
-        palette = ((20, 120, 50), (30, 70, 180))
-        for index, gray in enumerate(framebuffer):
-            slot = role_mask[index]
-            if slot:
-                coverage = 255 - gray
-                color = palette[slot - 1]
-                # JavaScript Math.round parity (positive values): pxpipe
-                # alpha-blends role ink with round(), not truncation.
-                rgb[index * 3] = (
-                    255 - (coverage * (255 - color[0]) + 127) // 255
+            role_slot = 0
+            if role_mask is not None and char_index < len(slot_line):
+                mark = slot_line[char_index]
+                if mark == ROLE_MARK_USER:
+                    role_slot = 1
+                elif mark == ROLE_MARK_ASSISTANT:
+                    role_slot = 2
+            can_blit_scanlines = (
+                scanline_blit_safe
+                and profile.cell_width >= glyph_atlas.cell_width
+                and glyph_y_offset >= 0
+                and (
+                    glyph_y_offset + glyph_atlas.cell_height
+                    <= profile.line_height
                 )
-                rgb[index * 3 + 1] = (
-                    255 - (coverage * (255 - color[1]) + 127) // 255
+                and base_y + glyph_y_offset >= 0
+                and (
+                    base_y + glyph_y_offset + glyph_atlas.cell_height <= height
                 )
-                rgb[index * 3 + 2] = (
-                    255 - (coverage * (255 - color[2]) + 127) // 255
+                and base_x >= 0
+                and base_x + src_width <= profile.width
+            )
+            if can_blit_scanlines:
+                cached_width, pixel_rows = _dense_glyph_scanlines(
+                    glyph_atlas_key,
+                    rank,
+                    atlas_mode,
                 )
+                if cached_width != src_width:
+                    raise AssertionError("dense glyph width cache mismatch")
+                role_rows: tuple[bytes, ...] = (
+                    _dense_glyph_role_scanlines(
+                        glyph_atlas_key,
+                        rank,
+                        role_slot,
+                    )
+                    if role_slot
+                    else ()
+                )
+                for glyph_y, pixel_row in enumerate(pixel_rows):
+                    dst = (
+                        base_y + glyph_y_offset + glyph_y
+                    ) * profile.width + base_x
+                    framebuffer[dst : dst + src_width] = pixel_row
+                    if role_mask is not None and role_rows:
+                        role_mask[dst : dst + src_width] = role_rows[glyph_y]
             else:
-                rgb[index * 3 : index * 3 + 3] = bytes((gray, gray, gray))
-        image = Image.frombytes("RGB", (profile.width, height), bytes(rgb))
-    else:
+                # A pxpipe-compatible out-of-cell write can spill linearly
+                # into later scanlines. Keep every following glyph on the
+                # min-blending path so its white background cannot erase ink
+                # from that earlier spill.
+                scanline_blit_safe = False
+                for glyph_y in range(glyph_atlas.cell_height):
+                    dst = (
+                        base_y + glyph_y_offset + glyph_y
+                    ) * profile.width + base_x
+                    src = src_offset + glyph_y * src_width
+                    for glyph_x in range(src_width):
+                        coverage = glyph_atlas.pixels[src + glyph_x]
+                        if coverage:
+                            if atlas_mode == "bit":
+                                coverage = 255
+                            pixel = 255 - coverage
+                            index = dst + glyph_x
+                            # Match Uint8Array's linear indexing in pxpipe. A
+                            # caller that explicitly forces fewer columns than
+                            # a wide glyph occupies can spill the glyph's final
+                            # pixels into the next scanline; writes beyond the
+                            # complete framebuffer are ignored.
+                            if index >= len(framebuffer):
+                                continue
+                            if pixel < framebuffer[index]:
+                                framebuffer[index] = pixel
+                            if role_mask is not None and role_slot:
+                                role_mask[index] = role_slot
+            col += cells
+    image = (
+        _role_colored_image(
+            framebuffer,
+            role_mask,
+            profile.width,
+            height,
+        )
+        if role_mask is not None
+        else None
+    )
+    if image is None:
         image = Image.frombytes(
             "L",
             (profile.width, height),
@@ -652,6 +820,7 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
     render_variant: str = PRODUCTION_RECIPE.render_variant.name,
     columns: int | None = None,
     atlas_mode: str = "gray",
+    readable_chars_per_image: int = READABLE_CHARS_PER_IMAGE,
 ) -> list[RenderedPage]:
     """Render text into deterministic, content-height PNG pages."""
     profile = resolve_render_profile(profile_name, render_variant)
@@ -665,8 +834,16 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
     )
     if slot_lines is not None and len(slot_lines) != len(lines):
         slot_lines = None
-    per_page = render_rows_per_page(profile, actual_columns)
-    laid_out_pages = _split_visual_pages(lines, per_page)
+    per_page = render_rows_per_page(
+        profile,
+        actual_columns,
+        readable_chars_per_image,
+    )
+    laid_out_pages = _split_visual_pages(
+        lines,
+        per_page,
+        readable_chars_per_image,
+    )
     page_count = len(laid_out_pages)
     if max_pages is not None:
         # Never remove original text unless every rendered row fits. A page
@@ -793,6 +970,7 @@ def _cached_render_text_pages(
     render_variant: str,
     columns: int | None,
     atlas_mode: str,
+    readable_chars_per_image: int,
 ) -> tuple[RenderedPage, ...]:
     return tuple(
         _render_text_pages_uncached(
@@ -803,6 +981,7 @@ def _cached_render_text_pages(
             render_variant,
             columns,
             atlas_mode,
+            readable_chars_per_image,
         ),
     )
 
@@ -816,6 +995,7 @@ def render_text_pages(
     *,
     columns: int | None = None,
     atlas_mode: str = "gray",
+    readable_chars_per_image: int = READABLE_CHARS_PER_IMAGE,
 ) -> list[RenderedPage]:
     """Render through a bounded cross-request cache of immutable PNG pages."""
     return list(
@@ -827,5 +1007,6 @@ def render_text_pages(
             render_variant,
             columns,
             atlas_mode,
+            readable_chars_per_image,
         ),
     )

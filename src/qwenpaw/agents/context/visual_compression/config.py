@@ -10,7 +10,8 @@ algorithm limits shared by the renderer, factsheet, and schema transformer.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Literal, Mapping, cast
 
 FACTSHEET_MAX_SCAN_CHARS = 262_144
 FACTSHEET_MAX_DISTINCT = 2_048
@@ -40,10 +41,11 @@ class RenderProfile:
     padding: int = 16
 
 
-# TODO: STALE: ``calibrated`` is retained as the selected recipe's historical
-# name. ``5x8`` is its byte-identical benchmark alias; 7x10/9x12 are direct
-# renderer calibration alternatives. Production selects only the immutable
-# profile embedded in ``PRODUCTION_RECIPE`` below.
+# TODO: STALE: ``calibrated`` is retained as the Low preset's historical name.
+# ``5x8`` is its byte-identical benchmark alias; 7x10/9x12 are direct renderer
+# calibration alternatives. Medium and High deliberately keep Low's fixed
+# canvas while using progressively smaller packaged fonts and denser grids.
+# That makes effort describe compression density, not a larger visual budget.
 PROFILES = {
     "5x8": RenderProfile(
         "5x8",
@@ -61,6 +63,24 @@ PROFILES = {
         font_size=8,
         line_height=8,
         cell_width=5,
+        width=1568,
+        max_height=728,
+        padding=4,
+    ),
+    "effort-medium": RenderProfile(
+        "effort-medium",
+        font_size=6,
+        line_height=8,
+        cell_width=4,
+        width=1568,
+        max_height=728,
+        padding=4,
+    ),
+    "effort-high": RenderProfile(
+        "effort-high",
+        font_size=5,
+        line_height=7,
+        cell_width=3,
         width=1568,
         max_height=728,
         padding=4,
@@ -257,10 +277,10 @@ class VisualCompressionRecipe:
     """One code-owned, immutable production behavior recipe.
 
     This is deliberately not the persisted ``VisualCompressionConfig``.
-    Agent configuration decides whether the feature may run; this value
-    decides how the production transform behaves once it runs. Temporary
-    benchmark profiles remain above for direct evaluation calls, but the
-    production pipeline never selects among them from user configuration.
+    Agent configuration decides whether the feature may run and selects one
+    named effort; the resolved value decides how the production transform
+    behaves. Temporary benchmark profiles remain above for direct evaluation
+    calls, but individual recipe fields are not user-configurable.
     """
 
     recipe_id: str
@@ -274,6 +294,7 @@ class VisualCompressionRecipe:
     image_patch_size: int
     image_cost_safety_margin: float
     max_visual_cost_ratio: float
+    tool_result_max_visual_cost_ratio: float
     chars_per_text_token_fallback: float
     factsheet_limit: int
     static_min_chars: int
@@ -286,9 +307,9 @@ class VisualCompressionRecipe:
     history_keep_recent_messages: int
 
 
-# This is the only recipe used by the production middleware path. Keep the
-# complete algorithm decision surface in one immutable value so renderer,
-# gate, planner, and receipt cannot silently resolve different defaults.
+# Preserve the current production behavior as the Low baseline and as the
+# default for direct renderer helpers. The effort map below derives every
+# other candidate from this complete immutable recipe.
 PRODUCTION_RECIPE = VisualCompressionRecipe(
     recipe_id="qwenpaw-fixed-grid-v3",
     config_schema_version=1,
@@ -301,6 +322,7 @@ PRODUCTION_RECIPE = VisualCompressionRecipe(
     image_patch_size=28,
     image_cost_safety_margin=1.10,
     max_visual_cost_ratio=0.90,
+    tool_result_max_visual_cost_ratio=0.90,
     chars_per_text_token_fallback=4.0,
     factsheet_limit=96,
     static_min_chars=2_000,
@@ -314,13 +336,79 @@ PRODUCTION_RECIPE = VisualCompressionRecipe(
 )
 
 
+VisualCompressionEffort = Literal["low", "medium", "high"]
+
+# Candidate intensity presets for local product calibration. Low is the
+# byte-compatible, quality-conservative production baseline. Medium and High
+# become more active through lower eligibility floors and a smaller native
+# frontier, while their denser typography reduces image cost per compressed
+# character. Keep the profitability ratio fixed: raising it would permit
+# increasingly expensive replacements and invert the intended token gradient.
+PRODUCTION_RECIPES: Mapping[
+    VisualCompressionEffort,
+    VisualCompressionRecipe,
+] = MappingProxyType(
+    {
+        "low": PRODUCTION_RECIPE,
+        "medium": replace(
+            PRODUCTION_RECIPE,
+            recipe_id="qwenpaw-density-v1:medium",
+            render_profile=PROFILES["effort-medium"],
+            readable_chars_per_image=35_100,
+            static_min_chars=1_800,
+            tool_result_min_chars=5_000,
+            history_keep_recent_messages=5,
+        ),
+        "high": replace(
+            PRODUCTION_RECIPE,
+            recipe_id="qwenpaw-density-v1:high",
+            render_profile=PROFILES["effort-high"],
+            readable_chars_per_image=53_040,
+            static_min_chars=1_500,
+            tool_result_min_chars=4_000,
+            history_keep_recent_messages=4,
+        ),
+    },
+)
+
+
+def production_recipe_for_effort(
+    effort: str | None,
+) -> VisualCompressionRecipe:
+    """Resolve one validated, code-owned production intensity preset."""
+    key = str(effort or "low")
+    if key not in PRODUCTION_RECIPES:
+        raise ValueError(f"unknown visual compression effort: {key}")
+    return PRODUCTION_RECIPES[cast(VisualCompressionEffort, key)]
+
+
 def evaluation_recipe_from_config(config: Any) -> VisualCompressionRecipe:
     """TODO: STALE: Rebuild old benchmark variants as an explicit recipe.
 
-    Only the opted-in local evaluation path may call this adapter. Production
-    always uses ``PRODUCTION_RECIPE`` and therefore cannot be changed by the
-    persisted benchmark fields retained for manifest compatibility.
+    Only the opted-in local evaluation path may call this adapter. An
+    explicitly supplied ``effort`` selects the corresponding production
+    candidate for gradient measurement. Without one, the legacy benchmark
+    fields retain their previous behavior.
     """
+    fields_set = getattr(config, "model_fields_set", None)
+    effort_is_explicit = (
+        "effort" in fields_set
+        if fields_set is not None
+        else hasattr(config, "effort")
+    )
+    if effort_is_explicit:
+        recipe = production_recipe_for_effort(
+            str(config_value(config, "effort", "low")),
+        )
+        return replace(
+            recipe,
+            factsheet_limit=(
+                recipe.factsheet_limit
+                if bool(config_value(config, "emit_factsheet", True))
+                else 0
+            ),
+        )
+
     variant_name = str(config_value(config, "render_variant", "v0_pxpipe"))
     profile_name = str(config_value(config, "render_profile", "calibrated"))
     return replace(
@@ -332,6 +420,9 @@ def evaluation_recipe_from_config(config: Any) -> VisualCompressionRecipe:
             config_value(config, "image_cost_safety_margin", 1.10),
         ),
         max_visual_cost_ratio=float(
+            config_value(config, "max_visual_cost_ratio", 0.90),
+        ),
+        tool_result_max_visual_cost_ratio=float(
             config_value(config, "max_visual_cost_ratio", 0.90),
         ),
         chars_per_text_token_fallback=float(
@@ -368,9 +459,8 @@ def evaluation_recipe_from_config(config: Any) -> VisualCompressionRecipe:
     )
 
 
-# These two projections are the production precision module's cycle-free
-# defaults. They intentionally come from the same frozen recipe used by
-# callers.
+# These two projections are cycle-free Low defaults for legacy direct callers.
+# Effort-aware pipeline callers pass their resolved recipe values explicitly.
 FACTSHEET_MAX_ENTRIES = PRODUCTION_RECIPE.factsheet_limit
 FACTSHEET_PAGE_CHARS = PRODUCTION_RECIPE.readable_chars_per_image
 
@@ -407,6 +497,7 @@ __all__ = [
     "PIPELINE_VERSION",
     "PRECISION_VERSION",
     "PRODUCTION_RECIPE",
+    "PRODUCTION_RECIPES",
     "RENDER_VARIANTS",
     "ROLE_MARK_ASSISTANT",
     "ROLE_MARK_USER",
@@ -414,11 +505,13 @@ __all__ = [
     "RenderProfile",
     "RenderVariant",
     "VisualCompressionRecipe",
+    "VisualCompressionEffort",
     "SCHEMA_FORMAT_MAX_LENGTH",
     "SCHEMA_MAX_DEPTH",
     "STATIC_MIN_CHARS",
     "config_value",
     "evaluation_recipe_from_config",
+    "production_recipe_for_effort",
     "resolve_render_profile",
     "resolve_render_variant",
 ]

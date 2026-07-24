@@ -250,7 +250,11 @@ def record_render_geometry(
         1,
         (profile.width - 2 * profile.padding) // profile.cell_width,
     )
-    rows_per_image = render_rows_per_page(profile, columns)
+    rows_per_image = render_rows_per_page(
+        profile,
+        columns,
+        recipe.readable_chars_per_image,
+    )
 
     evaluation.render_profile = profile.name
     evaluation.render_variant = variant.name

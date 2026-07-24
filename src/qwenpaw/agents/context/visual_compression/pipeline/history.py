@@ -254,6 +254,7 @@ def _prepare_history_chunks(
     pages_left: int,
     profile: str,
     render_variant: str,
+    readable_chars_per_image: int,
 ) -> tuple[list[_PreparedHistoryChunk], int]:
     """Select the largest page-bounded frozen prefix without rasterizing it."""
     prepared: list[_PreparedHistoryChunk] = []
@@ -278,6 +279,7 @@ def _prepare_history_chunks(
                 render_text,
                 profile,
                 render_variant,
+                readable_chars_per_image=readable_chars_per_image,
             ),
         )
         if (
@@ -362,6 +364,7 @@ def compress_history(  # pylint: disable=R0912,R0915
         pages_left,
         profile,
         render_variant,
+        recipe.readable_chars_per_image,
     )
     if collapsed_end <= first or not prepared:
         return messages, pages_left
@@ -446,6 +449,7 @@ def compress_history(  # pylint: disable=R0912,R0915
             len(chunk.estimated_pages),
             chunk.slot_text,
             render_variant,
+            readable_chars_per_image=recipe.readable_chars_per_image,
         )
         if len(pages) != len(chunk.estimated_pages) or any(
             (page.width, page.height) != (estimate.width, estimate.height)

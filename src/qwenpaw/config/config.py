@@ -974,6 +974,14 @@ class VisualCompressionConfig(BaseModel):
         default=False,
         description="Enable request-time text-to-image compression.",
     )
+    effort: Literal["low", "medium", "high"] = Field(
+        default="low",
+        description=(
+            "Visual compression intensity. Low preserves the current "
+            "conservative baseline; medium and high progressively increase "
+            "the profitability gate, image capacity, and eligible context."
+        ),
+    )
     # TODO: STALE: Model capability now comes from QwenPaw's existing provider
     # capability registry, shared with view_image and formatter normalization.
     allowed_models: List[str] = Field(

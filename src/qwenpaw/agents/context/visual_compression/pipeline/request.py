@@ -20,10 +20,10 @@ from .....constant import (
 )
 
 from ..config import (
-    PRODUCTION_RECIPE,
     VisualCompressionRecipe,
     config_value,
     evaluation_recipe_from_config,
+    production_recipe_for_effort,
 )
 from .receipt import (
     CompressionEvaluation,
@@ -91,7 +91,7 @@ def _validate_media_invariants(
 # 1. Remove ``time``, ``CompressionEvaluation``, evaluation helpers, and
 #    ``evaluation_recipe_from_config`` from this module.
 # 2. Remove the benchmark-only ``model`` and ``recipe`` parameters below;
-#    production always reads the immutable ``PRODUCTION_RECIPE``. Model media
+#    production resolves one immutable effort recipe from config. Model media
 #    capability remains the middleware's responsibility through QwenPaw's
 #    existing capability registry.
 # 3. Remove ``receipt_dir``, ``collect_evaluation``, ``started``, ``arm``, the
@@ -108,16 +108,16 @@ def transform_model_request(
     tools: list[dict] | None,
     *,
     config: Any,
-    # TODO: STALE: Benchmark-only inputs. Production always uses the immutable
-    # recipe and does not need a model id; model capability is checked by the
-    # middleware through QwenPaw's existing capability registry.
+    # TODO: STALE: Benchmark-only inputs. Production resolves the immutable
+    # effort recipe and does not need a model id; model capability is checked
+    # by the middleware through QwenPaw's existing capability registry.
     model: str = "",
     recipe: VisualCompressionRecipe | None = None,
 ) -> tuple[list[Msg], list[dict] | None, CompressionReceipt]:
     """Apply the provider-independent production compression pipeline."""
     # TODO: STALE: BEGIN temporary evaluation setup. The production path uses
-    # ``PRODUCTION_RECIPE`` and leaves ``evaluation`` unset. Delete this setup
-    # with the benchmark CLI and the evaluation receipt payload.
+    # one production effort recipe and leaves ``evaluation`` unset. Delete
+    # this setup with the benchmark CLI and the evaluation receipt payload.
     receipt_dir = config_value(config, "receipt_dir", None)
     # TODO: STALE: ``record_factsheet_text`` and ``receipt_dir`` are the two
     # temporary benchmark opt-ins. They also gate all expensive receipt work
@@ -129,7 +129,9 @@ def transform_model_request(
         recipe = (
             evaluation_recipe_from_config(config)
             if collect_evaluation
-            else PRODUCTION_RECIPE
+            else production_recipe_for_effort(
+                config_value(config, "effort", "low"),
+            )
         )
     started = time.perf_counter() if collect_evaluation else None
     # TODO: STALE: ``experiment_arm`` exists only for paired benchmark runs.

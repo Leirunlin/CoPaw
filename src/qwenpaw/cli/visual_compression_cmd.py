@@ -1402,6 +1402,7 @@ def _ground_truth_is_supported(task: EvalTask, workspace: Path) -> bool:
 def _history_visual_preflight(
     task: EvalTask,
     *,
+    effort: str | None,
     history_chunk_messages: int,
     render_profile: str,
     render_variant: str,
@@ -1452,6 +1453,8 @@ def _history_visual_preflight(
         record_factsheet_text=True,
         receipt_dir=None,
     )
+    if effort is not None:
+        config_values["effort"] = effort
     config_values.update(
         {
             key: value
@@ -1508,6 +1511,7 @@ def _prepare_task_artifacts(
     output_dir: Path,
     tasks: list[EvalTask],
     *,
+    effort: str | None = None,
     history_chunk_messages: int = 10,
     render_profile: str = "calibrated",
     render_variant: str = "v0_pxpipe",
@@ -1584,6 +1588,7 @@ def _prepare_task_artifacts(
             if organic_context
             else _history_visual_preflight(
                 task,
+                effort=effort,
                 history_chunk_messages=history_chunk_messages,
                 render_profile=render_profile,
                 render_variant=render_variant,
@@ -2785,6 +2790,7 @@ async def _run_pair(
     provider_retries: bool,
     max_iters: int,
     arm_order: list[str],
+    effort: str | None,
     render_profile: str,
     render_variant: str,
     history_chunk_messages: int,
@@ -2841,6 +2847,8 @@ async def _run_pair(
         # flag alone controls transformation; enabled stays true so both arms
         # expose the same recovery tool schema.
         visual.enabled = True
+        if effort is not None:
+            visual.effort = effort
         visual.experiment_arm = arm
         visual.emit_factsheet = arm != "on_nofactsheet"
         visual.record_factsheet_text = True
@@ -3666,6 +3674,15 @@ def visual_compression_group() -> None:
     type=click.Path(dir_okay=False, path_type=Path),
     help="benchmark-v2 task.json; defaults to the repository benchmark file.",
 )
+@click.option(
+    "--effort",
+    default=None,
+    type=click.Choice(["low", "medium", "high"]),
+    help=(
+        "Use one production effort preset for the ON arm. When omitted, "
+        "legacy render/threshold benchmark flags remain authoritative."
+    ),
+)
 @click.option("--arms", default="off,on", show_default=True)
 @click.option(
     "--arm-order-seed",
@@ -3872,6 +3889,7 @@ def eval_command(
     model: str | None,
     suite: str,
     task_file: Path | None,
+    effort: str | None,
     arms: str,
     arm_order_seed: int,
     confirm: bool,
@@ -4045,6 +4063,7 @@ def eval_command(
             "arms": arm_list,
             "arm_order_seed": arm_order_seed,
             "provider_retries": provider_retries,
+            "effort": effort,
             "render_profile": render_profile,
             "render_variant": render_variant,
             "workspace_alias": (
@@ -4091,6 +4110,7 @@ def eval_command(
         preflight = _prepare_task_artifacts(
             out,
             tasks,
+            effort=effort,
             history_chunk_messages=history_chunk_messages,
             render_profile=render_profile,
             render_variant=render_variant,
@@ -4136,6 +4156,7 @@ def eval_command(
         "arms": arm_list,
         "arm_order_seed": arm_order_seed,
         "provider_retries": provider_retries,
+        "effort": effort,
         "render_profile": render_profile,
         "render_variant": render_variant,
         "workspace_alias": (
@@ -4265,6 +4286,7 @@ def eval_command(
                 provider_retries=provider_retries,
                 max_iters=max_iters,
                 arm_order=order,
+                effort=effort,
                 render_profile=render_profile,
                 render_variant=render_variant,
                 history_chunk_messages=history_chunk_messages,

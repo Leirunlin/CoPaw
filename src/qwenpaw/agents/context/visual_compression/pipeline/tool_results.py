@@ -184,6 +184,7 @@ def _truncate_for_budget(  # pylint: disable=R0915
     max_images: int,
     profile_name: str,
     render_variant: str = "v0_pxpipe",
+    readable_chars_per_image: int = READABLE_CHARS_PER_IMAGE,
 ) -> tuple[str, int]:
     """Port pxpipe's visual-row and char-bounded head/tail pager."""
     profile = resolve_render_profile(profile_name, render_variant)
@@ -191,18 +192,22 @@ def _truncate_for_budget(  # pylint: disable=R0915
         1,
         (profile.width - 2 * profile.padding) // profile.cell_width,
     )
-    rows_per_image = render_rows_per_page(profile, cols)
+    rows_per_image = render_rows_per_page(
+        profile,
+        cols,
+        readable_chars_per_image,
+    )
     estimated_images = max(
         1,
         math.ceil(_pxpipe_visual_rows(text, cols) / rows_per_image),
-        math.ceil(_utf16_code_units(text) / READABLE_CHARS_PER_IMAGE),
+        math.ceil(_utf16_code_units(text) / readable_chars_per_image),
     )
     if estimated_images <= max_images:
         return text, 0
     total_row_budget = max(8, max_images * rows_per_image - 6)
     total_char_budget = max(
         128,
-        max_images * READABLE_CHARS_PER_IMAGE - 512,
+        max_images * readable_chars_per_image - 512,
     )
     delimiter = "\n" if "\n" in text else "↵"
     lines = text.split(delimiter)
@@ -354,7 +359,7 @@ def compress_tool_results(  # pylint: disable=R0915
     min_chars = recipe.tool_result_min_chars
     ppt = float(config_value(config, "pixels_per_token", 750.0))
     cpt = recipe.chars_per_text_token_fallback
-    ratio = recipe.max_visual_cost_ratio
+    ratio = recipe.tool_result_max_visual_cost_ratio
     safety = recipe.image_cost_safety_margin
     profile = recipe.render_profile.name
     render_variant = recipe.render_variant.name
@@ -408,6 +413,7 @@ def compress_tool_results(  # pylint: disable=R0915
                 profile,
                 render_variant,
                 columns=render_columns,
+                readable_chars_per_image=recipe.readable_chars_per_image,
             )
             > page_budget
         ):
@@ -430,6 +436,7 @@ def compress_tool_results(  # pylint: disable=R0915
                 page_budget,
                 profile,
                 render_variant,
+                recipe.readable_chars_per_image,
             )
             render_payload = rendered_source
             render_columns = measure_content_columns(
@@ -443,6 +450,7 @@ def compress_tool_results(  # pylint: disable=R0915
                     profile,
                     render_variant,
                     columns=render_columns,
+                    readable_chars_per_image=recipe.readable_chars_per_image,
                 )
                 > page_budget
             ):
@@ -456,6 +464,7 @@ def compress_tool_results(  # pylint: disable=R0915
             profile,
             render_variant,
             columns=render_columns,
+            readable_chars_per_image=recipe.readable_chars_per_image,
         )
         if len(estimated_pages) > page_budget:
             if evaluation is not None:
@@ -500,6 +509,7 @@ def compress_tool_results(  # pylint: disable=R0915
             render_variant,
             columns=render_columns,
             atlas_mode="gray",
+            readable_chars_per_image=recipe.readable_chars_per_image,
         )
         if not pages:
             return None
