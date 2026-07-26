@@ -55,6 +55,33 @@ def _agent_will_strip_media(
         return False
 
 
+def _without_recovery_tool(
+    input_kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a request without the visual-only recovery schema."""
+    tools = input_kwargs.get("tools")
+    if not isinstance(tools, list):
+        return input_kwargs
+
+    def is_recovery_tool(tool: Any) -> bool:
+        if not isinstance(tool, dict):
+            return False
+        function = tool.get("function")
+        function_name = (
+            function.get("name") if isinstance(function, dict) else None
+        )
+        return (
+            function_name == "recover_visual_context"
+            or tool.get("name") == "recover_visual_context"
+        )
+
+    if not any(is_recovery_tool(tool) for tool in tools):
+        return input_kwargs
+    request = dict(input_kwargs)
+    request["tools"] = [tool for tool in tools if not is_recovery_tool(tool)]
+    return request
+
+
 class VisualCompressionMiddleware(MiddlewareBase):
     """Rewrite one prepared request immediately before provider I/O."""
 
@@ -71,9 +98,15 @@ class VisualCompressionMiddleware(MiddlewareBase):
             else TurnRecoveryStore()
         )
 
-    def _log_skipped(self, reason: str) -> None:
+    def _log_skipped(
+        self,
+        *,
+        model_key: str | None,
+        reason: str,
+    ) -> None:
         logger.debug(
-            "Visual Compact skipped: effort=%s reason=%s",
+            "Visual Compact skipped: model=%s effort=%s reason=%s",
+            model_key or "-",
             self._effort_preset.effort,
             reason,
         )
@@ -84,21 +117,32 @@ class VisualCompressionMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> Any:
+        current_model = input_kwargs.get("current_model")
+        model_key = _model_key(current_model)
         if not self._enabled:
             self._recovery_store.clear()
             return await next_handler(**input_kwargs)
 
         from ....prompt import get_model_supports_image
 
-        current_model = input_kwargs.get("current_model")
         if _agent_will_strip_media(agent, current_model):
-            self._log_skipped("media_stripped")
+            self._log_skipped(
+                model_key=model_key,
+                reason="media_stripped",
+            )
             self._recovery_store.clear()
-            return await next_handler(**input_kwargs)
+            return await next_handler(
+                **_without_recovery_tool(input_kwargs),
+            )
         if not get_model_supports_image(current_model):
-            self._log_skipped("model_without_image_support")
+            self._log_skipped(
+                model_key=model_key,
+                reason="model_without_image_support",
+            )
             self._recovery_store.clear()
-            return await next_handler(**input_kwargs)
+            return await next_handler(
+                **_without_recovery_tool(input_kwargs),
+            )
 
         request = dict(input_kwargs)
         messages = request.get("messages") or []
@@ -118,10 +162,15 @@ class VisualCompressionMiddleware(MiddlewareBase):
             cache_after = render_cache_info()
         except Exception:  # pylint: disable=broad-exception-caught
             logger.exception(
-                "Visual compression failed; sending the original request",
+                "Visual compression failed; sending the original request "
+                "(model=%s effort=%s)",
+                model_key or "-",
+                self._effort_preset.effort,
             )
             self._recovery_store.clear()
-            return await next_handler(**request)
+            return await next_handler(
+                **_without_recovery_tool(request),
+            )
         self._recovery_store.replace(receipt.recoverable)
         request["messages"] = transformed
         request["tools"] = transformed_tools
@@ -135,14 +184,19 @@ class VisualCompressionMiddleware(MiddlewareBase):
             if receipt.source_estimated_tokens
             else 0.0
         )
+        applied = bool(receipt.recoverable)
+        if not applied:
+            request = _without_recovery_tool(request)
         logger.debug(
-            "Visual Compact transform: effort=%s applied=%s regions=%s "
+            "Visual Compact transform: model=%s effort=%s "
+            "applied=%s regions=%s "
             "blocks=%d images=%d compressed_chars=%d "
             "estimated_source_tokens=%d estimated_replacement_tokens=%d "
             "estimated_saved_tokens=%d estimated_savings_pct=%.1f "
             "transform_ms=%.1f render_cache_hits=%d render_cache_misses=%d",
+            model_key or "-",
             self._effort_preset.effort,
-            bool(receipt.recoverable),
+            applied,
             receipt.regions,
             len(receipt.recoverable),
             receipt.image_count,

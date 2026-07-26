@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+import logging
+import time
 from typing import Any
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
+
+logger = logging.getLogger(__name__)
 
 
 class TurnRecoveryStore:
@@ -126,11 +130,41 @@ def make_recover_visual_context_tool(
             start_line: Optional 1-based exact line-range start.
             end_line: Optional 1-based exact line-range end.
         """
+        started = time.perf_counter()
+        source = store.recover(block_id)
         text = store.excerpt(
             block_id,
             query=query,
             start_line=start_line,
             end_line=end_line,
+        )
+        if source is None:
+            outcome = "expired"
+        elif query and text.startswith("No exact line containing"):
+            outcome = "no_match"
+        elif text.startswith("Invalid line range:"):
+            outcome = "invalid_range"
+        else:
+            outcome = "success"
+        mode = (
+            "query"
+            if query
+            else (
+                "line_range"
+                if start_line is not None or end_line is not None
+                else "bounded_default"
+            )
+        )
+        logger.debug(
+            "Visual Compact recovery: block_id=%s outcome=%s mode=%s "
+            "source_chars=%d returned_chars=%d query_chars=%d elapsed_ms=%.1f",
+            block_id,
+            outcome,
+            mode,
+            len(source or ""),
+            len(text),
+            len(query or ""),
+            (time.perf_counter() - started) * 1000,
         )
         return ToolChunk(
             is_last=True,
