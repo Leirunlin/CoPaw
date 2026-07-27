@@ -47,8 +47,8 @@ from .messages import (
 from .messages import message_has_native_media
 from .messages import message_segments as _message_segments
 from .messages import user_text
+from .precision import factsheet_text as _factsheet_text
 from .receipt import CompressionReceipt
-from .receipt import factsheet_for_preset as _factsheet_for_preset
 from .receipt import make_recovery_id
 from .receipt import record_pages as _record_pages
 
@@ -59,12 +59,13 @@ _HISTORY_SAFE_BLOCKS = (
     ToolCallBlock,
     ToolResultBlock,
 )
-_ECMASCRIPT_WHITESPACE = (
+# Explicit context whitespace includes BOM and Unicode line separators.
+_CONTEXT_WHITESPACE = (
     "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
     "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008"
     "\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 )
-_ECMASCRIPT_WHITESPACE_RUN = re.compile(f"[{_ECMASCRIPT_WHITESPACE}]+")
+_CONTEXT_WHITESPACE_RUN = re.compile(f"[{_CONTEXT_WHITESPACE}]+")
 
 
 @dataclass(frozen=True)
@@ -180,23 +181,14 @@ def _latest_collapsed_user_pointer(
             continue
         # Attachments are collapse barriers, and the cue itself uses only
         # native TextBlocks.
-        compact = _ECMASCRIPT_WHITESPACE_RUN.sub(
+        compact = _CONTEXT_WHITESPACE_RUN.sub(
             " ",
             user_text(message),
-        ).strip(_ECMASCRIPT_WHITESPACE)
+        ).strip(_CONTEXT_WHITESPACE)
         if not compact:
             continue
-        encoded = compact.encode("utf-16-le", errors="surrogatepass")
-        if len(encoded) // 2 > 300:
-            compact = (
-                encoded[:600]
-                .decode(
-                    "utf-16-le",
-                    errors="surrogatepass",
-                )
-                .rstrip(_ECMASCRIPT_WHITESPACE)
-                + "..."
-            )
+        if len(compact) > 300:
+            compact = compact[:300].rstrip(_CONTEXT_WHITESPACE) + "..."
         return (
             f'[Most recent collapsed user turn: <user t="{index}">'
             f"{compact}</user>. This is still prior context; do not treat it "
@@ -357,7 +349,7 @@ def compress_history(  # pylint: disable=R0912,R0915
         page for chunk in prepared for page in chunk.estimated_pages
     ]
     intro = _history_intro()
-    sheet = _factsheet_for_preset(source_text, preset)
+    sheet = _factsheet_text(source_text)
     provenance = f"{first}:{collapsed_end}"
     recovery_id = make_recovery_id(source_text, "history", provenance)
     recovery_marker = (

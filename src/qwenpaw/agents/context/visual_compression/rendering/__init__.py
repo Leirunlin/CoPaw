@@ -2,7 +2,6 @@
 """Production surface for deterministic visual-context rendering."""
 
 from .renderer import (
-    READABLE_CHARS_PER_IMAGE,
     RenderedPage,
     estimate_text_pages,
     measure_content_columns,
@@ -14,7 +13,6 @@ from .renderer import (
 )
 
 __all__ = [
-    "READABLE_CHARS_PER_IMAGE",
     "RenderedPage",
     "estimate_text_pages",
     "measure_content_columns",

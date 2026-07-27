@@ -124,7 +124,7 @@ def profitable(
         cols = max(1, int(columns))
         rows = 0
         for line in rendered_text.split("\n"):
-            line_length = len(line.encode("utf-16-le")) // 2
+            line_length = len(line)
             rows += 1 if line_length == 0 else math.ceil(line_length / cols)
         hard_rows = max(
             1,
@@ -132,7 +132,7 @@ def profitable(
         )
         readable_rows = max(
             1,
-            preset.readable_chars_per_image // cols,
+            (preset.readable_chars_per_image + 1) // (cols + 1),
         )
         rows_per_image = min(hard_rows, readable_rows)
         image_count = max(1, math.ceil(rows / rows_per_image))

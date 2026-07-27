@@ -37,7 +37,6 @@ class EffortPreset:
     """Values that change with the selected compression intensity."""
 
     effort: VisualCompressionEffort
-    font_size: int
     cell_width: int
     line_height: int
     readable_chars_per_image: int
@@ -53,7 +52,6 @@ EFFORT_PRESETS: Mapping[
     {
         "low": EffortPreset(
             effort="low",
-            font_size=8,
             cell_width=5,
             line_height=8,
             readable_chars_per_image=28_080,
@@ -63,7 +61,6 @@ EFFORT_PRESETS: Mapping[
         ),
         "medium": EffortPreset(
             effort="medium",
-            font_size=6,
             cell_width=4,
             line_height=8,
             readable_chars_per_image=35_100,
@@ -73,7 +70,6 @@ EFFORT_PRESETS: Mapping[
         ),
         "high": EffortPreset(
             effort="high",
-            font_size=5,
             cell_width=3,
             line_height=7,
             readable_chars_per_image=53_040,
@@ -93,7 +89,6 @@ def effort_preset(effort: str) -> EffortPreset:
 
 
 LOW_EFFORT_PRESET = EFFORT_PRESETS["low"]
-DEFAULT_EFFORT_PRESET = EFFORT_PRESETS["low"]
 
 
 __all__ = [
@@ -101,7 +96,6 @@ __all__ = [
     "CANVAS_PADDING",
     "CANVAS_WIDTH",
     "CHARS_PER_TEXT_TOKEN_FALLBACK",
-    "DEFAULT_EFFORT_PRESET",
     "EFFORT_PRESETS",
     "EffortPreset",
     "FACTSHEET_MAX_CHUNK_CHARS",

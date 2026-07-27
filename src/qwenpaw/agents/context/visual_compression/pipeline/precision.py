@@ -19,8 +19,6 @@ from ..config import (
 @dataclass(frozen=True)
 class FactEntry:
     value: str
-    kind: str
-    priority: int
     count: int = 1
 
 
@@ -28,39 +26,18 @@ _UUID = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
 )
-# Keep Unicode whitespace and UTF-16 boundaries explicit for stable results.
-_ECMASCRIPT_WHITESPACE = (
+# Explicit context whitespace includes BOM and Unicode line separators.
+_CONTEXT_WHITESPACE = (
     "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
     "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009"
     "\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 )
-_ES_WHITESPACE_CLASS = f"[{re.escape(_ECMASCRIPT_WHITESPACE)}]"
-_ES_NON_WHITESPACE_CLASS = f"[^{re.escape(_ECMASCRIPT_WHITESPACE)}]"
-_ES_CHUNK = re.compile(f"{_ES_NON_WHITESPACE_CLASS}+")
+_NON_WHITESPACE_CLASS = f"[^{re.escape(_CONTEXT_WHITESPACE)}]"
+_TEXT_CHUNK = re.compile(f"{_NON_WHITESPACE_CLASS}+")
 
 
-def _utf16_code_units(value: str) -> int:
-    """Return JavaScript ``String.length`` for ``value``."""
-    return len(value.encode("utf-16-le", errors="surrogatepass")) // 2
-
-
-def _utf16_slice(value: str, start: int, end: int) -> str:
-    """Apply JavaScript ``String.slice(start, end)`` code-unit boundaries."""
-    encoded = value.encode("utf-16-le", errors="surrogatepass")
-    return encoded[start * 2 : end * 2].decode(
-        "utf-16-le",
-        errors="surrogatepass",
-    )
-
-
-def _utf16_lexical_key(value: str) -> bytes:
-    """Provide JavaScript's UTF-16 code-unit lexical order."""
-    return value.encode("utf-16-be", errors="surrogatepass")
-
-
-def _ecmascript_trim(value: str) -> str:
-    """Apply the whitespace set used by JavaScript ``String.trim``."""
-    return value.strip(_ECMASCRIPT_WHITESPACE)
+def _trim_context_whitespace(value: str) -> str:
+    return value.strip(_CONTEXT_WHITESPACE)
 
 
 _EMAIL = re.compile(
@@ -81,17 +58,17 @@ _NUMBER = re.compile(r"^\d[\d,_]*$|^\d+\.\d+$")
 _URL = re.compile(r"^https?://")
 _CAMEL = re.compile(r"^(?:[a-z]+|[A-Z][a-z0-9]+)(?:[A-Z][a-z0-9]*)+$")
 _ASSIGNMENT = re.compile(
-    rf"^[A-Z][A-Z0-9_]{{2,}}={_ES_NON_WHITESPACE_CLASS}+$",
+    rf"^[A-Z][A-Z0-9_]{{2,}}={_NON_WHITESPACE_CLASS}+$",
     re.ASCII,
 )
 _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         rf"\b[A-Z][A-Z0-9_]{{2,}}="
-        rf"[^{re.escape(_ECMASCRIPT_WHITESPACE)})\"'<>]+",
+        rf"[^{re.escape(_CONTEXT_WHITESPACE)})\"'<>]+",
         re.ASCII,
     ),
     re.compile(
-        rf"\bhttps?://[^{re.escape(_ECMASCRIPT_WHITESPACE)})\"'<>]+",
+        rf"\bhttps?://[^{re.escape(_CONTEXT_WHITESPACE)})\"'<>]+",
         re.ASCII,
     ),
     re.compile(
@@ -141,7 +118,7 @@ def _priority(token: str) -> int:
         _NUMBER,
     )
     if any(pattern.match(token) for pattern in protected) or (
-        _CAMEL.match(token) and _utf16_code_units(token) >= 8
+        _CAMEL.match(token) and len(token) >= 8
     ):
         return 1
     return 3 if _URL.match(token) else 2
@@ -152,8 +129,8 @@ def _select(counts: dict[str, int], limit: int) -> list[FactEntry]:
     for token in sorted(
         counts,
         key=lambda value: (
-            -_utf16_code_units(value),
-            _utf16_lexical_key(value),
+            -len(value),
+            value,
         ),
     ):
         if not any(token in kept for kept in specific):
@@ -162,8 +139,8 @@ def _select(counts: dict[str, int], limit: int) -> list[FactEntry]:
         specific,
         key=lambda value: (
             _priority(value),
-            -_utf16_code_units(value),
-            _utf16_lexical_key(value),
+            -len(value),
+            value,
         ),
     )
     selected: list[FactEntry] = []
@@ -174,7 +151,7 @@ def _select(counts: dict[str, int], limit: int) -> list[FactEntry]:
                 continue
             urls += 1
         selected.append(
-            FactEntry(token, "exact_token", _priority(token), counts[token]),
+            FactEntry(token, counts[token]),
         )
         if len(selected) >= limit:
             break
@@ -183,17 +160,16 @@ def _select(counts: dict[str, int], limit: int) -> list[FactEntry]:
 
 def _extract_page(text: str, limit: int) -> list[FactEntry]:
     counts: dict[str, int] = {}
-    for chunk_match in _ES_CHUNK.finditer(text):
+    for chunk_match in _TEXT_CHUNK.finditer(text):
         chunk = chunk_match.group(0)
-        chunk_units = _utf16_code_units(chunk)
-        if chunk_units < 3 or chunk_units > FACTSHEET_MAX_CHUNK_CHARS:
+        if not 3 <= len(chunk) <= FACTSHEET_MAX_CHUNK_CHARS:
             continue
         spans: set[tuple[int, str]] = set()
         for pattern in _PATTERNS:
             for match in pattern.finditer(chunk):
                 token = match.group(1) if match.lastindex else match.group(0)
-                token = _ecmascript_trim(token).rstrip(".,;:!?")
-                if not 3 <= _utf16_code_units(token) <= 120:
+                token = _trim_context_whitespace(token).rstrip(".,;:!?")
+                if not 3 <= len(token) <= 120:
                     continue
                 key = (
                     match.start(1) if match.lastindex else match.start(),
@@ -215,17 +191,13 @@ def extract_fact_entries(
     """Extract high-risk exact tokens under a fixed entry cap."""
     if not text or limit <= 0:
         return []
-    text_units = _utf16_code_units(text)
-    if text_units <= FACTSHEET_MAX_SCAN_CHARS:
+    if len(text) <= FACTSHEET_MAX_SCAN_CHARS:
         return _extract_page(text, limit)
     merged_counts: dict[str, int] = {}
-    pages = max(1, math.ceil(text_units / FACTSHEET_PAGE_CHARS))
+    pages = max(1, math.ceil(len(text) / FACTSHEET_PAGE_CHARS))
     for page in range(pages):
-        chunk = _utf16_slice(
-            text,
-            page * FACTSHEET_PAGE_CHARS,
-            (page + 1) * FACTSHEET_PAGE_CHARS,
-        )
+        start = page * FACTSHEET_PAGE_CHARS
+        chunk = text[start : start + FACTSHEET_PAGE_CHARS]
         for entry in _extract_page(chunk, limit):
             merged_counts[entry.value] = (
                 merged_counts.get(entry.value, 0) + entry.count

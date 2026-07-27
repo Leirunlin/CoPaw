@@ -17,6 +17,20 @@ _EXACT_TEXT_BEGIN = "[BEGIN EXACT TEXT]"
 _EXACT_TEXT_END = "[END EXACT TEXT]"
 
 
+def _original_offset_from_casefold(
+    value: str,
+    folded_offset: int,
+) -> int:
+    """Map an offset in ``value.casefold()`` back to the source string."""
+    consumed = 0
+    for index, char in enumerate(value):
+        next_consumed = consumed + len(char.casefold())
+        if folded_offset < next_consumed:
+            return index
+        consumed = next_consumed
+    return len(value)
+
+
 def _exact_page(
     block_id: str,
     value: str,
@@ -122,9 +136,13 @@ class TurnRecoveryStore:
                 )
             first_match = matched[0]
             first_line = lines[first_match]
-            line_match = first_line.casefold().find(needle)
+            folded_match = first_line.casefold().find(needle)
+            line_match = _original_offset_from_casefold(
+                first_line,
+                max(0, folded_match),
+            )
             line_start = sum(len(line) for line in lines[:first_match])
-            match_char = line_start + max(0, line_match)
+            match_char = line_start + line_match
             if len(first_line) >= max_chars:
                 window_start = max(0, match_char - max_chars // 3)
                 return _exact_page(

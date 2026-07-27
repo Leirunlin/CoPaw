@@ -27,13 +27,6 @@ from ..config import (
     EffortPreset,
 )
 
-READABLE_CHARS_PER_IMAGE = LOW_EFFORT_PRESET.readable_chars_per_image
-
-
-def _utf16_code_units(text: str) -> int:
-    """Count UTF-16 code units used by the layout contract."""
-    return len(text.encode("utf-16-le")) // 2
-
 
 @dataclass(frozen=True)
 class RenderedPage:
@@ -42,7 +35,6 @@ class RenderedPage:
     png: bytes
     width: int
     height: int
-    source_chars: int
     dropped_chars: int = 0
     dropped_codepoints: dict[str, int] = field(default_factory=dict)
 
@@ -59,14 +51,13 @@ class _DenseGrayAtlas:
     offsets: array
     wide_flags: bytes
     pixels: bytes
-    cell_width: int = 5
-    cell_height: int = 8
+    cell_width: int
+    cell_height: int
 
 
 @dataclass(frozen=True)
 class _RenderProfile:
     effort: str
-    font_size: int
     line_height: int
     cell_width: int
     width: int = CANVAS_WIDTH
@@ -77,7 +68,6 @@ class _RenderProfile:
 def _profile_for_preset(preset: EffortPreset) -> _RenderProfile:
     return _RenderProfile(
         effort=preset.effort,
-        font_size=preset.font_size,
         line_height=preset.line_height,
         cell_width=preset.cell_width,
     )
@@ -90,9 +80,6 @@ _DENSE_ATLAS_PROFILES = {
     "high": (_ASSET_ROOT / "atlas-gray-high.ts", 3, 6),
 }
 _INVERT_BYTES = bytes.maketrans(bytes(range(256)), bytes(reversed(range(256))))
-_BIT_COVERAGE_TO_PIXEL = bytes(
-    255 if coverage == 0 else 0 for coverage in range(256)
-)
 _COVERAGE_TO_ROLE_1 = bytes(
     0 if coverage == 0 else 1 for coverage in range(256)
 )
@@ -162,7 +149,6 @@ def _atlas_for_profile(profile: _RenderProfile) -> _DenseGrayAtlas:
 @lru_cache(maxsize=4096)
 def _dense_glyph_scanlines(
     rank: int,
-    atlas_mode: str,
     effort: str = "low",
 ) -> tuple[int, tuple[bytes, ...]]:
     """Return immutable pixel rows for one dense glyph."""
@@ -170,14 +156,11 @@ def _dense_glyph_scanlines(
     cells = 2 if atlas.wide_flags[rank] == 1 else 1
     src_width = cells * atlas.cell_width
     src_offset = atlas.offsets[rank]
-    pixel_table = (
-        _BIT_COVERAGE_TO_PIXEL if atlas_mode == "bit" else _INVERT_BYTES
-    )
     pixel_rows: list[bytes] = []
     for glyph_y in range(atlas.cell_height):
         start = src_offset + glyph_y * src_width
         coverage = atlas.pixels[start : start + src_width]
-        pixel_rows.append(coverage.translate(pixel_table))
+        pixel_rows.append(coverage.translate(_INVERT_BYTES))
     return src_width, tuple(pixel_rows)
 
 
@@ -214,20 +197,23 @@ def _char_cells(char: str) -> int:
     return 2 if rank is not None and atlas.wide_flags[rank] == 1 else 1
 
 
-def _is_escape_exempt(codepoint: int) -> bool:
-    # Internal role markers must survive layout so ``slot_text`` stays aligned
-    # with the visible history text. Other missing semantic characters,
-    # including combining marks, joiners and variation selectors, must become
-    # visible escapes instead of being silently discarded by the rasterizer.
-    return codepoint in {ord(ROLE_MARK_USER), ord(ROLE_MARK_ASSISTANT)}
-
-
-def _escape_missing_glyphs(line: str) -> str:
+def _escape_missing_glyphs(
+    line: str,
+    *,
+    preserve_role_markers: bool = False,
+) -> str:
+    """Escape atlas misses, preserving role markers only in ``slot_text``."""
     atlas = _load_dense_gray_atlas()
     out: list[str] | None = None
     for index, char in enumerate(line):
         codepoint = ord(char)
-        if codepoint not in atlas.ranks and not _is_escape_exempt(codepoint):
+        is_role_marker = codepoint in {
+            ord(ROLE_MARK_USER),
+            ord(ROLE_MARK_ASSISTANT),
+        }
+        if codepoint not in atlas.ranks and not (
+            preserve_role_markers and is_role_marker
+        ):
             if out is None:
                 out = list(line[:index])
             out.append(f"[U+{codepoint:X}]")
@@ -254,13 +240,21 @@ def _expand_tabs_visible(line: str) -> str:
     return "".join(out)
 
 
-def _wrap_line(line: str, max_cols: int) -> list[str]:
+def _wrap_line(
+    line: str,
+    max_cols: int,
+    *,
+    preserve_role_markers: bool = False,
+) -> list[str]:
     if not line:
         return [""]
     out: list[str] = []
     current = ""
     used_cols = 0
-    prepared = _escape_missing_glyphs(_expand_tabs_visible(line))
+    prepared = _escape_missing_glyphs(
+        _expand_tabs_visible(line),
+        preserve_role_markers=preserve_role_markers,
+    )
     for char in prepared:
         cells = _char_cells(char)
         if used_cols + cells > max_cols:
@@ -284,6 +278,8 @@ def _visual_lines(
     text: str,
     profile: _RenderProfile,
     columns: int | None = None,
+    *,
+    preserve_role_markers: bool = False,
 ) -> list[str]:
     max_cols = columns or max(
         1,
@@ -291,7 +287,13 @@ def _visual_lines(
     )
     lines: list[str] = []
     for raw in _minify_for_render(text).split("\n"):
-        lines.extend(_wrap_line(raw, max_cols))
+        lines.extend(
+            _wrap_line(
+                raw,
+                max_cols,
+                preserve_role_markers=preserve_role_markers,
+            ),
+        )
     return lines or [""]
 
 
@@ -341,7 +343,7 @@ def render_rows_per_page(
     )
     readable_rows = max(
         1,
-        preset.readable_chars_per_image // max(1, int(columns)),
+        (preset.readable_chars_per_image + 1) // (max(1, int(columns)) + 1),
     )
     return min(hard_rows, readable_rows)
 
@@ -349,7 +351,7 @@ def render_rows_per_page(
 def _split_visual_pages(
     lines: list[str],
     max_lines: int,
-    max_chars: int = READABLE_CHARS_PER_IMAGE,
+    max_chars: int,
 ) -> list[list[str]]:
     """Apply the joint row-count and serialized-character page bounds."""
     pages: list[list[str]] = []
@@ -358,7 +360,7 @@ def _split_visual_pages(
     line_limit = max(1, max_lines)
     char_limit = max(1, max_chars)
     for line in lines:
-        line_chars = _utf16_code_units(line) + int(bool(current))
+        line_chars = len(line) + int(bool(current))
         if current and (
             len(current) >= line_limit
             or current_chars + line_chars > char_limit
@@ -367,7 +369,7 @@ def _split_visual_pages(
             current = []
             current_chars = 0
         current.append(line)
-        current_chars += _utf16_code_units(line) + int(len(current) > 1)
+        current_chars += len(line) + int(len(current) > 1)
     if current:
         pages.append(current)
     return pages or [[]]
@@ -378,6 +380,8 @@ def _page_render_lines(
     profile: _RenderProfile,
     columns: int,
     max_lines: int,
+    *,
+    preserve_role_markers: bool = False,
 ) -> list[str]:
     # Most pages are already fully laid out. Repeat layout only for edge cases
     # where whitespace or a forced one-column canvas changes the result.
@@ -389,7 +393,12 @@ def _page_render_lines(
     ):
         return page_lines
     chunk = "\n".join(page_lines)
-    return _visual_lines(chunk, profile, columns)[: max(1, max_lines)]
+    return _visual_lines(
+        chunk,
+        profile,
+        columns,
+        preserve_role_markers=preserve_role_markers,
+    )[: max(1, max_lines)]
 
 
 def reflow_for_render(text: str) -> str:
@@ -461,7 +470,6 @@ def estimate_text_pages(
                 png=b"",
                 width=profile.width,
                 height=height,
-                source_chars=0,
             ),
         )
     return pages
@@ -552,11 +560,8 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
     lines: list[str],
     profile: _RenderProfile,
     slot_lines: list[str] | None = None,
-    atlas_mode: str = "gray",
 ) -> tuple[Image.Image, int, dict[str, int]]:
-    """Render Low effort with the frozen bit or grayscale atlas."""
-    if atlas_mode not in {"bit", "gray"}:
-        raise ValueError(f"unknown atlas mode: {atlas_mode}")
+    """Render one page with the selected frozen grayscale atlas."""
     atlas = _atlas_for_profile(profile)
     height = max(
         profile.padding * 2 + profile.line_height,
@@ -577,19 +582,17 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
         base_y = profile.padding + row * profile.line_height
         for char_index, char in enumerate(line):
             codepoint = ord(char)
-            glyph_atlas = atlas
-            rank = glyph_atlas.ranks.get(codepoint)
-            glyph_y_offset = 0
+            rank = atlas.ranks.get(codepoint)
             if rank is None:
                 dropped += 1
                 key = f"U+{codepoint:04X}"
                 dropped_codepoints[key] = dropped_codepoints.get(key, 0) + 1
                 col += _char_cells(char)
                 continue
-            wide = glyph_atlas.wide_flags[rank] == 1
+            wide = atlas.wide_flags[rank] == 1
             cells = 2 if wide else 1
-            src_width = cells * glyph_atlas.cell_width
-            src_offset = glyph_atlas.offsets[rank]
+            src_width = cells * atlas.cell_width
+            src_offset = atlas.offsets[rank]
             base_x = profile.padding + col * profile.cell_width
             role_slot = 0
             if role_mask is not None and char_index < len(slot_line):
@@ -600,23 +603,16 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
                     role_slot = 2
             can_blit_scanlines = (
                 scanline_blit_safe
-                and profile.cell_width >= glyph_atlas.cell_width
-                and glyph_y_offset >= 0
-                and (
-                    glyph_y_offset + glyph_atlas.cell_height
-                    <= profile.line_height
-                )
-                and base_y + glyph_y_offset >= 0
-                and (
-                    base_y + glyph_y_offset + glyph_atlas.cell_height <= height
-                )
+                and profile.cell_width >= atlas.cell_width
+                and atlas.cell_height <= profile.line_height
+                and base_y >= 0
+                and (base_y + atlas.cell_height <= height)
                 and base_x >= 0
                 and base_x + src_width <= profile.width
             )
             if can_blit_scanlines:
                 cached_width, pixel_rows = _dense_glyph_scanlines(
                     rank,
-                    atlas_mode,
                     profile.effort,
                 )
                 if cached_width != src_width:
@@ -631,9 +627,7 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
                     else ()
                 )
                 for glyph_y, pixel_row in enumerate(pixel_rows):
-                    dst = (
-                        base_y + glyph_y_offset + glyph_y
-                    ) * profile.width + base_x
+                    dst = (base_y + glyph_y) * profile.width + base_x
                     framebuffer[dst : dst + src_width] = pixel_row
                     if role_mask is not None and role_rows:
                         role_mask[dst : dst + src_width] = role_rows[glyph_y]
@@ -641,16 +635,12 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
                 # A forced narrow canvas can spill into a later scanline.
                 # Keep subsequent glyphs on the min-blending path.
                 scanline_blit_safe = False
-                for glyph_y in range(glyph_atlas.cell_height):
-                    dst = (
-                        base_y + glyph_y_offset + glyph_y
-                    ) * profile.width + base_x
+                for glyph_y in range(atlas.cell_height):
+                    dst = (base_y + glyph_y) * profile.width + base_x
                     src = src_offset + glyph_y * src_width
                     for glyph_x in range(src_width):
-                        coverage = glyph_atlas.pixels[src + glyph_x]
+                        coverage = atlas.pixels[src + glyph_x]
                         if coverage:
-                            if atlas_mode == "bit":
-                                coverage = 255
                             pixel = 255 - coverage
                             index = dst + glyph_x
                             if index >= len(framebuffer):
@@ -689,14 +679,18 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
     max_pages: int | None = None,
     slot_text: str | None = None,
     columns: int | None = None,
-    atlas_mode: str = "gray",
 ) -> list[RenderedPage]:
     """Render text into deterministic, content-height PNG pages."""
     profile = _profile_for_preset(preset)
     profile, actual_columns = _profile_with_columns(profile, columns)
     lines = _visual_lines(text, profile, actual_columns)
     slot_lines = (
-        _visual_lines(slot_text, profile, actual_columns)
+        _visual_lines(
+            slot_text,
+            profile,
+            actual_columns,
+            preserve_role_markers=True,
+        )
         if slot_text is not None
         else None
     )
@@ -738,6 +732,7 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
                 profile,
                 actual_columns,
                 per_page,
+                preserve_role_markers=True,
             )
             if initial_slot_chunk is not None
             else None
@@ -756,7 +751,6 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
             render_lines,
             profile,
             slot_chunk,
-            atlas_mode,
         )
         if dropped_chars:
             missing = ", ".join(sorted(dropped_codepoints))
@@ -769,14 +763,11 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
             if image.mode == "RGB"
             else _encode_gray_png(image.tobytes(), profile.width, height)
         )
-        # Include the synthetic separators between rendered rows.
-        chars = sum(len(line) for line in chunk) + max(0, len(chunk) - 1)
         pages.append(
             RenderedPage(
                 png=png,
                 width=profile.width,
                 height=height,
-                source_chars=chars,
                 dropped_chars=dropped_chars,
                 dropped_codepoints=dropped_codepoints,
             ),
@@ -791,7 +782,6 @@ def _cached_render_text_pages(
     max_pages: int | None,
     slot_text: str | None,
     columns: int | None,
-    atlas_mode: str,
 ) -> tuple[RenderedPage, ...]:
     return tuple(
         _render_text_pages_uncached(
@@ -800,7 +790,6 @@ def _cached_render_text_pages(
             max_pages,
             slot_text,
             columns,
-            atlas_mode,
         ),
     )
 
@@ -812,7 +801,6 @@ def render_text_pages(
     slot_text: str | None = None,
     *,
     columns: int | None = None,
-    atlas_mode: str = "gray",
 ) -> list[RenderedPage]:
     """Render through a bounded cross-request cache of immutable PNG pages."""
     return list(
@@ -822,7 +810,6 @@ def render_text_pages(
             max_pages,
             slot_text,
             columns,
-            atlas_mode,
         ),
     )
 

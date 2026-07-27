@@ -26,8 +26,8 @@ from .budget import (
 from .budget import profitable as _profitable
 from .messages import compact_slab_whitespace as _compact_slab_whitespace
 from .messages import data_blocks as _data_blocks
+from .precision import factsheet_text as _factsheet_text
 from .receipt import CompressionReceipt
-from .receipt import factsheet_for_preset as _factsheet_for_preset
 from .receipt import make_recovery_id
 from .receipt import record_pages as _record_pages
 from .tool_schemas import plan_qwenpaw_tool_documentation
@@ -55,11 +55,6 @@ _QWENPAW_ENV_MARKERS = (
     "- Docs: https://qwenpaw.agentscope.io/",
     "- Current date:",
 )
-
-
-def _utf16_code_units(text: str) -> int:
-    """Count UTF-16 code units used by compression thresholds."""
-    return len(text.encode("utf-16-le")) // 2
 
 
 def _message_text(message: Msg) -> str | None:
@@ -160,9 +155,9 @@ def compress_static_context(  # pylint: disable=R0912,R0915
     prepared_text = prepare_render_text(
         _compact_slab_whitespace(text),
     )
-    if _utf16_code_units(prepared_text) < preset.static_min_chars:
+    if len(prepared_text) < preset.static_min_chars:
         return messages, tools, pages_left, ""
-    sheet = _factsheet_for_preset(text, preset)
+    sheet = _factsheet_text(text)
     recovery_id = make_recovery_id(
         text,
         "static_slab",
@@ -244,7 +239,6 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         preset,
         pages_left,
         columns=render_columns,
-        atlas_mode="gray",
     )
     if not pages:
         return messages, tools, pages_left, ""

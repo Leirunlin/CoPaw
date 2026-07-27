@@ -30,27 +30,13 @@ from .budget import (
 from .budget import profitable as _profitable
 from .messages import compact_slab_whitespace as _compact_slab_whitespace
 from .messages import data_blocks as _data_blocks
+from .precision import factsheet_text as _factsheet_text
 from .receipt import CompressionReceipt
-from .receipt import factsheet_for_preset as _factsheet_for_preset
 from .receipt import make_recovery_id
 from .receipt import record_pages as _record_pages
 
 
-def _utf16_code_units(text: str) -> int:
-    """Count UTF-16 code units used by the paging contract."""
-    return len(text.encode("utf-16-le")) // 2
-
-
-def _utf16_prefix(text: str, code_units: int) -> str:
-    """Return a prefix bounded by UTF-16 code units."""
-    encoded = text.encode("utf-16-le", errors="surrogatepass")
-    return encoded[: max(0, code_units) * 2].decode(
-        "utf-16-le",
-        errors="surrogatepass",
-    )
-
-
-def _ecmascript_whitespace(char: str) -> bool:
+def _is_context_whitespace(char: str) -> bool:
     codepoint = ord(char)
     return (
         0x0009 <= codepoint <= 0x000D
@@ -70,9 +56,9 @@ def _ecmascript_whitespace(char: str) -> bool:
     )
 
 
-def _ecmascript_trim_start(text: str) -> str:
+def _trim_context_start(text: str) -> str:
     index = 0
-    while index < len(text) and _ecmascript_whitespace(text[index]):
+    while index < len(text) and _is_context_whitespace(text[index]):
         index += 1
     return text[index:]
 
@@ -94,24 +80,20 @@ def _ascii_word_boundary_after(text: str, prefix: str) -> bool:
 def _visual_rows(text: str, columns: int) -> int:
     """Estimate wrapped visual rows."""
     return sum(
-        max(1, math.ceil(_utf16_code_units(line) / max(1, columns)))
+        max(1, math.ceil(len(line) / max(1, columns)))
         for line in text.split("\n")
     )
 
 
 def _classify_content(text: str) -> str:
     """Classify content for structured or head-tail paging."""
-    head = _utf16_prefix(text, 4096)
-    stripped = _ecmascript_trim_start(head)
+    head = text[:4096]
+    stripped = _trim_context_start(head)
     after_object = (
-        _ecmascript_trim_start(stripped[1:])
-        if stripped.startswith("{")
-        else ""
+        _trim_context_start(stripped[1:]) if stripped.startswith("{") else ""
     )
     after_array = (
-        _ecmascript_trim_start(stripped[1:])
-        if stripped.startswith("[")
-        else ""
+        _trim_context_start(stripped[1:]) if stripped.startswith("[") else ""
     )
     array_starts_value = bool(after_array) and (
         after_array[0] in {'"', "{", "[", "]"}
@@ -128,8 +110,8 @@ def _classify_content(text: str) -> str:
     yaml_rest = stripped[3:] if stripped.startswith("---") else ""
     yaml_document_marker = (
         bool(yaml_rest)
-        and _ecmascript_whitespace(yaml_rest[0])
-        and bool(_ecmascript_trim_start(yaml_rest))
+        and _is_context_whitespace(yaml_rest[0])
+        and bool(_trim_context_start(yaml_rest))
     )
     object_starts_value = bool(after_object) and after_object[0] in {'"', "}"}
     explicit_document_start = stripped.startswith(
@@ -181,10 +163,12 @@ def _paging_marker(
     )
 
 
-def _truncate_for_budget(  # pylint: disable=R0915
+def _truncate_for_budget(  # pylint: disable=R0912,R0915
     text: str,
     max_images: int,
     preset: EffortPreset,
+    *,
+    shape: str | None = None,
 ) -> tuple[str, int]:
     """Apply the visual-row and character-bounded head/tail pager."""
     cols = max(
@@ -199,7 +183,7 @@ def _truncate_for_budget(  # pylint: disable=R0915
         1,
         math.ceil(_visual_rows(text, cols) / rows_per_image),
         math.ceil(
-            _utf16_code_units(text) / preset.readable_chars_per_image,
+            len(text) / preset.readable_chars_per_image,
         ),
     )
     if estimated_images <= max_images:
@@ -212,16 +196,16 @@ def _truncate_for_budget(  # pylint: disable=R0915
     delimiter = "\n" if "\n" in text else "↵"
     lines = text.split(delimiter)
     original_lines = len(lines)
-    shape = _classify_content(text)
+    shape = shape or _classify_content(text)
 
     def line_rows(line: str) -> int:
-        return max(1, math.ceil(_utf16_code_units(line) / cols))
+        return max(1, math.ceil(len(line) / cols))
 
     if shape == "structured":
         rows = chars = cut = 0
         for idx, line in enumerate(lines):
             next_rows = line_rows(line)
-            next_chars = _utf16_code_units(line) + int(idx > 0)
+            next_chars = len(line) + int(idx > 0)
             if (
                 rows + next_rows > total_row_budget
                 or chars + next_chars > total_char_budget
@@ -230,11 +214,18 @@ def _truncate_for_budget(  # pylint: disable=R0915
             rows += next_rows
             chars += next_chars
             cut = idx + 1
-        cut = max(1, cut)
-        head = delimiter.join(lines[:cut])
-        omitted = _utf16_code_units(text) - _utf16_code_units(head)
+        if cut:
+            head = delimiter.join(lines[:cut])
+        else:
+            cut = 1
+            first_line_budget = min(
+                total_char_budget,
+                total_row_budget * cols,
+            )
+            head = lines[0][:first_line_budget]
+        omitted = len(text) - len(head)
         marker = _paging_marker(
-            original_chars=_utf16_code_units(text),
+            original_chars=len(text),
             original_lines=original_lines,
             omitted_chars=omitted,
             omitted_lines=max(0, original_lines - cut),
@@ -251,7 +242,7 @@ def _truncate_for_budget(  # pylint: disable=R0915
     head_rows = head_chars = head_cut = 0
     for idx, line in enumerate(lines):
         next_rows = line_rows(line)
-        next_chars = _utf16_code_units(line) + int(idx > 0)
+        next_chars = len(line) + int(idx > 0)
         if (
             head_rows + next_rows > head_row_budget
             or head_chars + next_chars > head_char_budget
@@ -260,13 +251,55 @@ def _truncate_for_budget(  # pylint: disable=R0915
         head_rows += next_rows
         head_chars += next_chars
         head_cut = idx + 1
-    head_cut = max(1, head_cut)
+    if head_cut == 0:
+        head_cut = 1
+        first_line_budget = min(
+            head_char_budget,
+            head_row_budget * cols,
+        )
+        head = lines[0][:first_line_budget]
+        if len(lines) == 1:
+            remaining = max(
+                0,
+                len(text) - len(head),
+            )
+            tail_budget = min(
+                tail_char_budget,
+                tail_row_budget * cols,
+                remaining,
+            )
+            tail = lines[0][-tail_budget:] if tail_budget else ""
+            omitted = max(
+                0,
+                len(text) - len(head) - len(tail),
+            )
+            marker = _paging_marker(
+                original_chars=len(text),
+                original_lines=1,
+                omitted_chars=omitted,
+                omitted_lines=0,
+                head_lines=1,
+                tail_lines=int(bool(tail)),
+                original_images=estimated_images,
+            )
+            return head + marker + tail, omitted
+        omitted = len(text) - len(head)
+        marker = _paging_marker(
+            original_chars=len(text),
+            original_lines=original_lines,
+            omitted_chars=omitted,
+            omitted_lines=max(0, original_lines - 1),
+            head_lines=1,
+            tail_lines=0,
+            original_images=estimated_images,
+        )
+        return head + marker, omitted
     tail_rows = tail_chars = 0
     tail_start = len(lines)
     for idx in range(len(lines) - 1, head_cut - 1, -1):
         line = lines[idx]
         next_rows = line_rows(line)
-        next_chars = _utf16_code_units(line) + int(idx < len(lines) - 1)
+        next_chars = len(line) + int(idx < len(lines) - 1)
         if (
             tail_rows + next_rows > tail_row_budget
             or tail_chars + next_chars > tail_char_budget
@@ -277,9 +310,9 @@ def _truncate_for_budget(  # pylint: disable=R0915
         tail_start = idx
     head = delimiter.join(lines[:head_cut])
     if tail_start <= head_cut or tail_start >= len(lines):
-        omitted = _utf16_code_units(text) - _utf16_code_units(head)
+        omitted = len(text) - len(head)
         marker = _paging_marker(
-            original_chars=_utf16_code_units(text),
+            original_chars=len(text),
             original_lines=original_lines,
             omitted_chars=omitted,
             omitted_lines=max(0, original_lines - head_cut),
@@ -290,13 +323,9 @@ def _truncate_for_budget(  # pylint: disable=R0915
         return head + marker, omitted
     tail = delimiter.join(lines[tail_start:])
     tail_lines = len(lines) - tail_start
-    omitted = (
-        _utf16_code_units(text)
-        - _utf16_code_units(head)
-        - _utf16_code_units(tail)
-    )
+    omitted = len(text) - len(head) - len(tail)
     marker = _paging_marker(
-        original_chars=_utf16_code_units(text),
+        original_chars=len(text),
         original_lines=original_lines,
         omitted_chars=omitted,
         omitted_lines=max(0, original_lines - head_cut - tail_lines),
@@ -337,15 +366,15 @@ def compress_tool_results(  # pylint: disable=R0915
         if _must_keep_native(block):
             return None
         recovery_id = make_recovery_id(text, "tool_result", provenance)
-        sheet = _factsheet_for_preset(text, preset)
+        sheet = _factsheet_text(text)
         page_budget = min(
             pages_left,
             MAX_IMAGES_PER_TOOL_RESULT,
         )
-        rendered_source = prepare_render_text(
-            _compact_slab_whitespace(text),
-        )
-        if _utf16_code_units(rendered_source) < min_chars:
+        compact_source = _compact_slab_whitespace(text)
+        source_shape = _classify_content(compact_source)
+        rendered_source = prepare_render_text(compact_source)
+        if len(rendered_source) < min_chars:
             return None
         render_payload = rendered_source
         render_columns = measure_content_columns(
@@ -364,6 +393,7 @@ def compress_tool_results(  # pylint: disable=R0915
                 rendered_source,
                 page_budget,
                 preset,
+                shape=source_shape,
             )
             render_payload = rendered_source
             render_columns = measure_content_columns(
@@ -411,7 +441,6 @@ def compress_tool_results(  # pylint: disable=R0915
             preset,
             page_budget,
             columns=render_columns,
-            atlas_mode="gray",
         )
         if not pages:
             return None
