@@ -91,7 +91,6 @@ include-package-data = true
     "agents/skills/**",
     "agents/context/visual_compression/assets/atlas-gray.ts",
     "agents/context/visual_compression/assets/JetBrainsMono-Regular.ttf",
-    "agents/context/visual_compression/assets/Spleen-5x8.otb",
     "agents/context/visual_compression/assets/Unifont-16.0.04.otf",
     "agents/context/visual_compression/assets/JETBRAINS_MONO_LICENSE.txt",
     "agents/context/visual_compression/assets/UNIFONT_LICENSE.txt",
