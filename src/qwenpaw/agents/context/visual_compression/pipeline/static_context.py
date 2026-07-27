@@ -91,7 +91,7 @@ def _extract_qwenpaw_env_context(text: str) -> tuple[str, str]:
 
 
 def wrap_env_tail(env_tail: str) -> str:
-    """Wrap relocated host context without changing its authority."""
+    """Mark relocated host context as distinct from external-user text."""
     if not env_tail.strip():
         return ""
     return f"{_ENV_TAIL_HEADER}\n{env_tail.strip()}\n{_ENV_TAIL_FOOTER}"
@@ -101,10 +101,9 @@ def _plan_system_partition(
     messages: list[Msg],
     *,
     relocate_env_tail: bool,
-) -> tuple[list[str], list[str], dict[int, str], str]:
-    """Plan whole-system imaging with the QwenPaw env kept dynamic."""
-    visual_parts: list[str] = []
-    removed_parts: list[str] = []
+) -> tuple[list[str], dict[int, str], str]:
+    """Plan static imaging while keeping volatile env out of the slab."""
+    static_parts: list[str] = []
     replacements: dict[int, str] = {}
     env_tail = ""
 
@@ -115,23 +114,22 @@ def _plan_system_partition(
         if not text:
             continue
 
-        visual_text = text
+        static_text = text
         replacement_parts: list[str] = []
         if not env_tail:
-            visual_text, env_context = _extract_qwenpaw_env_context(text)
+            static_text, env_context = _extract_qwenpaw_env_context(text)
             if env_context:
                 if relocate_env_tail:
                     env_tail = env_context
                 else:
                     # Keep host context native without an external-user tag.
                     replacement_parts.append(env_context)
-        if visual_text:
-            visual_parts.append(visual_text)
-            removed_parts.append(visual_text)
+        if static_text:
+            static_parts.append(static_text)
         replacement_parts.append(_VISUAL_CONTEXT_POINTER)
         replacements[index] = "\n\n".join(replacement_parts)
 
-    return visual_parts, removed_parts, replacements, env_tail
+    return static_parts, replacements, env_tail
 
 
 def compress_static_context(  # pylint: disable=R0912,R0915
@@ -143,21 +141,12 @@ def compress_static_context(  # pylint: disable=R0912,R0915
     *,
     relocate_env_tail: bool = False,
 ) -> tuple[list[Msg], list[dict] | None, int, str]:
-    """Atomically image QwenPaw system/tool prose after all gates pass."""
-    parts: list[str] = []
-    removed_text_parts: list[str] = []
-    system_replacements: dict[int, str] = {}
-    env_tail = ""
-    (
-        system_parts,
-        removed_text_parts,
-        system_replacements,
-        env_tail,
-    ) = _plan_system_partition(
+    """Atomically image stable system and tool prose after all gates pass."""
+    system_parts, system_replacements, env_tail = _plan_system_partition(
         messages,
         relocate_env_tail=relocate_env_tail,
     )
-    parts.extend(system_parts)
+    parts = list(system_parts)
 
     new_tools = tools
     if tools:
@@ -214,7 +203,7 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         columns=render_columns,
     )
     removed_tokens = _count_text_tokens(
-        "\n".join(removed_text_parts),
+        "\n".join(system_parts),
         CHARS_PER_TEXT_TOKEN_FALLBACK,
     )
     if tools and new_tools is not tools:
@@ -231,7 +220,7 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         )
     replacement_parts = [
         "user",
-        *(_VISUAL_CONTEXT_POINTER for _ in system_replacements),
+        *([_VISUAL_CONTEXT_POINTER] * len(system_replacements)),
         sheet,
         end_marker,
     ]
@@ -255,15 +244,13 @@ def compress_static_context(  # pylint: disable=R0912,R0915
         preset,
         pages_left,
         columns=render_columns,
-        atlas_mode="bit",
+        atlas_mode="gray",
     )
     if not pages:
         return messages, tools, pages_left, ""
 
     for idx, replacement in system_replacements.items():
-        messages[idx].content = [
-            TextBlock(text=replacement),
-        ]
+        messages[idx].content = [TextBlock(text=replacement)]
     # The long instruction lives inside the deterministic image header;
     # only stable precision/recovery aids and an end marker
     # follow the images as native text.

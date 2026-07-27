@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, Any, Callable
 
 from agentscope.middleware import MiddlewareBase
@@ -13,6 +16,10 @@ from ..config import effort_preset
 from .recovery import TurnRecoveryStore
 
 logger = logging.getLogger(__name__)
+_TRANSFORM_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="qwenpaw-visual-compact",
+)
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -153,10 +160,23 @@ class VisualCompressionMiddleware(MiddlewareBase):
 
             cache_before = render_cache_info()
             started = time.perf_counter()
-            transformed, transformed_tools, receipt = transform_model_request(
+            # Rendering and PNG encoding are synchronous CPU work. Keep them
+            # off the event loop and bound their process-wide concurrency.
+            # Cancelling this await cannot stop work already running in the
+            # executor, but the event loop remains responsive.
+            transform = partial(
+                transform_model_request,
                 messages,
                 tools,
                 effort_preset=self._effort_preset,
+            )
+            (
+                transformed,
+                transformed_tools,
+                receipt,
+            ) = await asyncio.get_running_loop().run_in_executor(
+                _TRANSFORM_EXECUTOR,
+                transform,
             )
             transform_ms = (time.perf_counter() - started) * 1000
             cache_after = render_cache_info()

@@ -451,14 +451,13 @@ def get_model_supports_image(current_model: Any = None) -> bool:
 
     QwenPaw model wrappers expose ``provider_id:model`` through
     ``model_key``. When no request-local model is supplied, use the configured
-    active model. Unknown models fail open so the existing media-error retry
-    remains the final compatibility fallback.
+    active model. Visual Compact requires explicit image support; generic
+    multimodal support and unknown metadata are not sufficient.
     """
     if current_model is None:
         model_info, _ = _get_active_model_info()
-        return model_info is None or bool(
-            model_info.supports_image is True
-            or model_info.supports_multimodal is True,
+        return bool(
+            model_info is not None and model_info.supports_image is True,
         )
     try:
         model_key = getattr(current_model, "model_key", None)
@@ -493,13 +492,10 @@ def get_model_supports_image(current_model: Any = None) -> bool:
                     None,
                 )
                 if model_info is not None:
-                    return bool(
-                        model_info.supports_image is True
-                        or model_info.supports_multimodal is True,
-                    )
+                    return model_info.supports_image is True
     except Exception:
         pass
-    return True
+    return False
 
 
 def get_active_model_multimodal_raw() -> bool | None:

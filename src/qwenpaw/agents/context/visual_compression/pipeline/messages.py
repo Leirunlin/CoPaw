@@ -16,7 +16,6 @@ from agentscope.message import (
     TextBlock,
     ToolCallBlock,
     ToolResultBlock,
-    ToolResultState,
 )
 
 from ..config import ROLE_MARK_ASSISTANT, ROLE_MARK_USER
@@ -32,6 +31,11 @@ _STALE_FRESHNESS_NOTE = (
     "(state as of this PRIOR turn — the file may have changed since; "
     "Read it again before editing)"
 )
+
+
+def _state_value(state: Any) -> str:
+    """Return the stable wire value for either an enum or normalized string."""
+    return str(getattr(state, "value", state))
 
 
 @dataclass(frozen=True)
@@ -127,7 +131,10 @@ def block_text(block: Any) -> str:
     if isinstance(block, DataBlock):
         return f"[{media_kind(block)}]"
     if isinstance(block, ToolCallBlock):
-        return f"[tool_use {block.name}]\n{block.input}"
+        return (
+            f"[tool_call id={block.id} name={block.name} "
+            f"state={_state_value(block.state)}]\n{block.input}"
+        )
     if isinstance(block, ToolResultBlock):
         output = block.output
         if isinstance(output, str):
@@ -146,8 +153,10 @@ def block_text(block: Any) -> str:
                 _STALE_FRESHNESS_NOTE,
                 "\n".join(parts),
             )
-        error_mark = " (error)" if block.state == ToolResultState.ERROR else ""
-        return f"[tool_result{error_mark}]\n" + inner
+        return (
+            f"[tool_result id={block.id} name={block.name} "
+            f"state={_state_value(block.state)}]\n{inner}"
+        )
     # Old thinking/reasoning is deliberately absent from rendered history;
     # the recent native tail retains protocol-relevant reasoning state.
     return ""

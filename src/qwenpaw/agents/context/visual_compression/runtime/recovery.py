@@ -12,6 +12,36 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 logger = logging.getLogger(__name__)
+_DEFAULT_MAX_CHARS = 12_000
+_EXACT_TEXT_BEGIN = "[BEGIN EXACT TEXT]"
+_EXACT_TEXT_END = "[END EXACT TEXT]"
+
+
+def _exact_page(
+    block_id: str,
+    value: str,
+    cursor: int,
+    max_chars: int,
+    *,
+    match_char: int | None = None,
+) -> str:
+    """Return one bounded, directly sliceable source-text page."""
+    total = len(value)
+    end = min(total, cursor + max_chars)
+    while True:
+        next_cursor = str(end) if end < total else "none"
+        match = f" match_char={match_char}" if match_char is not None else ""
+        header = (
+            f"Visual source {block_id}: start_char={cursor} end_char={end} "
+            f"total_chars={total} next_cursor={next_cursor}{match}\n"
+            f"{_EXACT_TEXT_BEGIN}\n"
+        )
+        footer = f"\n{_EXACT_TEXT_END}"
+        result = f"{header}{value[cursor:end]}{footer}"
+        excess = len(result) - max_chars
+        if excess <= 0 or end <= cursor:
+            return result
+        end = max(cursor, end - excess)
 
 
 class TurnRecoveryStore:
@@ -50,13 +80,34 @@ class TurnRecoveryStore:
         query: str | None = None,
         start_line: int | None = None,
         end_line: int | None = None,
-        max_chars: int = 12_000,
+        cursor: int | None = None,
+        max_chars: int = _DEFAULT_MAX_CHARS,
     ) -> str:
         """Return a bounded excerpt without recreating a huge context loop."""
         value = self.recover(block_id)
         if value is None:
             return f"Unknown or expired visual context id: {block_id}"
-        lines = value.splitlines()
+        if cursor is not None and (
+            query is not None or start_line is not None or end_line is not None
+        ):
+            return (
+                "Invalid recovery arguments: cursor cannot be combined with "
+                "query, start_line, or end_line."
+            )
+        if cursor is not None:
+            if cursor < 0 or cursor > len(value):
+                return (
+                    f"Invalid cursor: {cursor}; expected a Unicode character "
+                    f"offset from 0 to {len(value)}."
+                )
+            return _exact_page(
+                block_id,
+                value,
+                cursor,
+                max_chars,
+            )
+
+        lines = value.splitlines(keepends=True)
         if query:
             needle = query.casefold()
             matched = [
@@ -69,12 +120,26 @@ class TurnRecoveryStore:
                     f"No exact line containing {query!r} in {block_id}; "
                     f"source has {len(lines)} lines. Try a shorter query."
                 )
+            first_match = matched[0]
+            first_line = lines[first_match]
+            line_match = first_line.casefold().find(needle)
+            line_start = sum(len(line) for line in lines[:first_match])
+            match_char = line_start + max(0, line_match)
+            if len(first_line) >= max_chars:
+                window_start = max(0, match_char - max_chars // 3)
+                return _exact_page(
+                    block_id,
+                    value,
+                    window_start,
+                    max_chars,
+                    match_char=match_char,
+                )
             selected: set[int] = set()
             for idx in matched[:64]:
                 selected.update(
                     range(max(0, idx - 2), min(len(lines), idx + 3)),
                 )
-            body = "\n".join(
+            body = "".join(
                 f"{idx + 1}: {lines[idx]}" for idx in sorted(selected)
             )
             return body[:max_chars]
@@ -83,25 +148,25 @@ class TurnRecoveryStore:
             end = min(len(lines), int(end_line or start + 199))
             if end < start:
                 return f"Invalid line range: {start}..{end}"
-            body = "\n".join(
+            body = "".join(
                 f"{idx + 1}: {lines[idx]}" for idx in range(start - 1, end)
             )
             return body[:max_chars]
         if len(value) <= max_chars:
             return value
-        head = "\n".join(
+        head = "".join(
             f"{idx + 1}: {line}" for idx, line in enumerate(lines[:30])
         )
         tail_start = max(30, len(lines) - 15)
-        tail = "\n".join(
+        tail = "".join(
             f"{idx + 1}: {lines[idx]}" for idx in range(tail_start, len(lines))
         )
         return (
             f"Visual source {block_id} has {len(lines)} lines and "
             f"{len(value)} chars. Full recovery is intentionally not returned "
             "in one tool result because that would recreate the compressed "
-            "context. Call again with query=... "
-            "or start_line/end_line.\n\n"
+            "context. Call again with query=..., start_line/end_line, or "
+            "cursor=0 for exact Unicode-text paging.\n\n"
             f"[HEAD]\n{head}\n\n[TAIL]\n{tail}"
         )[:max_chars]
 
@@ -116,8 +181,9 @@ def make_recover_visual_context_tool(
         query: str | None = None,
         start_line: int | None = None,
         end_line: int | None = None,
+        cursor: int | None = None,
     ) -> ToolChunk:
-        """Recover byte-exact text represented by a visual context block.
+        """Recover exact source text represented by a visual context block.
 
         Use this only when an image is ambiguous or the task requires a
         verbatim value that is absent from the adjacent exact-token factsheet.
@@ -129,6 +195,9 @@ def make_recover_visual_context_tool(
                 with bounded context instead of replaying the whole block.
             start_line: Optional 1-based exact line-range start.
             end_line: Optional 1-based exact line-range end.
+            cursor: Optional 0-based Unicode character offset for exact
+                source-text paging. The response supplies ``next_cursor``;
+                do not combine this with query or line-range arguments.
         """
         started = time.perf_counter()
         source = store.recover(block_id)
@@ -137,22 +206,27 @@ def make_recover_visual_context_tool(
             query=query,
             start_line=start_line,
             end_line=end_line,
+            cursor=cursor,
         )
         if source is None:
             outcome = "expired"
         elif query and text.startswith("No exact line containing"):
             outcome = "no_match"
-        elif text.startswith("Invalid line range:"):
-            outcome = "invalid_range"
+        elif text.startswith("Invalid "):
+            outcome = "invalid_request"
         else:
             outcome = "success"
         mode = (
-            "query"
-            if query
+            "cursor"
+            if cursor is not None
             else (
-                "line_range"
-                if start_line is not None or end_line is not None
-                else "bounded_default"
+                "query"
+                if query
+                else (
+                    "line_range"
+                    if start_line is not None or end_line is not None
+                    else "bounded_default"
+                )
             )
         )
         logger.debug(

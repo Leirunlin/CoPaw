@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 from ..config import (
     CANVAS_MAX_HEIGHT,
@@ -84,9 +84,11 @@ def _profile_for_preset(preset: EffortPreset) -> _RenderProfile:
 
 
 _ASSET_ROOT = Path(__file__).resolve().parent.parent / "assets"
-_DENSE_ATLAS_SOURCE = _ASSET_ROOT / "atlas-gray.ts"
-_PRIMARY_FONT = _ASSET_ROOT / "JetBrainsMono-Regular.ttf"
-_FALLBACK_FONT = _ASSET_ROOT / "Unifont-16.0.04.otf"
+_DENSE_ATLAS_PROFILES = {
+    "low": (_ASSET_ROOT / "atlas-gray.ts", 5, 8),
+    "medium": (_ASSET_ROOT / "atlas-gray-medium.ts", 4, 7),
+    "high": (_ASSET_ROOT / "atlas-gray-high.ts", 3, 6),
+}
 _INVERT_BYTES = bytes.maketrans(bytes(range(256)), bytes(reversed(range(256))))
 _BIT_COVERAGE_TO_PIXEL = bytes(
     255 if coverage == 0 else 0 for coverage in range(256)
@@ -104,7 +106,7 @@ _ROLE_TO_MASK = {
 _ROLE_PALETTE = ((20, 120, 50), (30, 70, 180))
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=3)
 def _load_gray_atlas(
     source_path: Path,
     cell_width: int,
@@ -136,16 +138,20 @@ def _load_gray_atlas(
     )
 
 
-def _load_dense_gray_atlas() -> _DenseGrayAtlas:
-    """Load the frozen Low-effort atlas."""
-    return _load_gray_atlas(_DENSE_ATLAS_SOURCE, 5, 8)
+def _load_dense_gray_atlas(effort: str = "low") -> _DenseGrayAtlas:
+    """Load the frozen atlas for one effort profile."""
+    try:
+        source, cell_width, cell_height = _DENSE_ATLAS_PROFILES[effort]
+    except KeyError as error:
+        raise ValueError(f"unknown frozen atlas profile: {effort}") from error
+    return _load_gray_atlas(source, cell_width, cell_height)
 
 
 def _atlas_for_profile(profile: _RenderProfile) -> _DenseGrayAtlas:
-    atlas = _load_dense_gray_atlas()
+    atlas = _load_dense_gray_atlas(profile.effort)
     if (
         atlas.cell_width != profile.cell_width
-        or atlas.cell_height != profile.line_height
+        or atlas.cell_height > profile.line_height
     ):
         raise ValueError(
             f"frozen atlas does not match {profile.effort} preset",
@@ -157,9 +163,10 @@ def _atlas_for_profile(profile: _RenderProfile) -> _DenseGrayAtlas:
 def _dense_glyph_scanlines(
     rank: int,
     atlas_mode: str,
+    effort: str = "low",
 ) -> tuple[int, tuple[bytes, ...]]:
     """Return immutable pixel rows for one dense glyph."""
-    atlas = _load_dense_gray_atlas()
+    atlas = _load_dense_gray_atlas(effort)
     cells = 2 if atlas.wide_flags[rank] == 1 else 1
     src_width = cells * atlas.cell_width
     src_offset = atlas.offsets[rank]
@@ -178,11 +185,12 @@ def _dense_glyph_scanlines(
 def _dense_glyph_role_scanlines(
     rank: int,
     role_slot: int,
+    effort: str = "low",
 ) -> tuple[bytes, ...]:
     """Return sparse role-mask rows for one glyph."""
     if role_slot not in {1, 2}:
         raise ValueError(f"unknown role slot: {role_slot}")
-    atlas = _load_dense_gray_atlas()
+    atlas = _load_dense_gray_atlas(effort)
     cells = 2 if atlas.wide_flags[rank] == 1 else 1
     src_width = cells * atlas.cell_width
     src_offset = atlas.offsets[rank]
@@ -197,37 +205,6 @@ def _dense_glyph_role_scanlines(
     )
 
 
-@lru_cache(maxsize=16)
-def _load_fonts(
-    size: int,
-) -> tuple[ImageFont.ImageFont, ImageFont.ImageFont]:
-    """Load the packaged fonts used by the denser effort presets."""
-    primary: ImageFont.ImageFont | None = None
-    fallback: ImageFont.ImageFont | None = None
-    for name in (
-        str(_PRIMARY_FONT),
-        "JetBrainsMono-Regular.ttf",
-        "DejaVuSansMono.ttf",
-        "LiberationMono-Regular.ttf",
-    ):
-        try:
-            primary = ImageFont.truetype(name, size=size)
-            break
-        except OSError:
-            continue
-    for name in (str(_FALLBACK_FONT), "Arial Unicode.ttf", "DejaVuSans.ttf"):
-        try:
-            fallback = ImageFont.truetype(name, size=size)
-            break
-        except OSError:
-            continue
-    try:
-        default = ImageFont.load_default(size=size)
-    except TypeError:  # Pillow < 10 compatibility
-        default = ImageFont.load_default()
-    return primary or default, fallback or primary or default
-
-
 @lru_cache(maxsize=4096)
 def _char_cells(char: str) -> int:
     if not char:
@@ -238,15 +215,11 @@ def _char_cells(char: str) -> int:
 
 
 def _is_escape_exempt(codepoint: int) -> bool:
-    if codepoint < 0x20 or 0x7F <= codepoint <= 0x9F:
-        return True
-    if 0x0300 <= codepoint <= 0x036F:
-        return True
-    if codepoint in {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF}:
-        return True
-    if 0xFE00 <= codepoint <= 0xFE0F:
-        return True
-    return 0xE0100 <= codepoint <= 0xE01EF
+    # Internal role markers must survive layout so ``slot_text`` stays aligned
+    # with the visible history text. Other missing semantic characters,
+    # including combining marks, joiners and variation selectors, must become
+    # visible escapes instead of being silently discarded by the rasterizer.
+    return codepoint in {ord(ROLE_MARK_USER), ord(ROLE_MARK_ASSISTANT)}
 
 
 def _escape_missing_glyphs(line: str) -> str:
@@ -538,46 +511,6 @@ def _encode_rgb_png(pixels: bytes, width: int, height: int) -> bytes:
     return _encode_png(pixels, width, height, channels=3)
 
 
-def _draw_grid_line(
-    draw: ImageDraw.ImageDraw,
-    line: str,
-    *,
-    x: int,
-    y: int,
-    profile: _RenderProfile,
-    primary: ImageFont.ImageFont,
-    fallback: ImageFont.ImageFont,
-) -> None:
-    """Draw one line on the fixed cell grid."""
-    col = 0
-    run = ""
-    run_col = 0
-    run_font = primary
-
-    def flush() -> None:
-        nonlocal run
-        if run:
-            draw.text(
-                (x + run_col * profile.cell_width, y),
-                run,
-                fill=0,
-                font=run_font,
-            )
-            run = ""
-
-    for char in line:
-        chosen = primary if ord(char) < 128 else fallback
-        cells = _char_cells(char)
-        if run and chosen is not run_font:
-            flush()
-        if not run:
-            run_col = col
-            run_font = chosen
-        run += char
-        col += cells
-    flush()
-
-
 @lru_cache(maxsize=6)
 def _role_blend_lut(channel: int) -> bytes:
     """Map grayscale coverage to one role-color channel."""
@@ -684,11 +617,16 @@ def _render_dense_atlas_page(  # pylint: disable=R0912,R0915,R1702
                 cached_width, pixel_rows = _dense_glyph_scanlines(
                     rank,
                     atlas_mode,
+                    profile.effort,
                 )
                 if cached_width != src_width:
                     raise AssertionError("dense glyph width cache mismatch")
                 role_rows: tuple[bytes, ...] = (
-                    _dense_glyph_role_scanlines(rank, role_slot)
+                    _dense_glyph_role_scanlines(
+                        rank,
+                        role_slot,
+                        profile.effort,
+                    )
                     if role_slot
                     else ()
                 )
@@ -779,10 +717,6 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
         # cap is a pass-through gate, not a truncation mechanism.
         if page_count > max(0, max_pages):
             return []
-    dense_atlas = profile.font_size == 8 and profile.cell_width == 5
-    primary = fallback = None
-    if not dense_atlas:
-        primary, fallback = _load_fonts(profile.font_size)
     pages: list[RenderedPage] = []
     line_cursor = 0
     for chunk in laid_out_pages:
@@ -814,32 +748,22 @@ def _render_text_pages_uncached(  # pylint: disable=R0912
             profile.padding * 2 + profile.line_height,
             profile.padding * 2 + len(render_lines) * profile.line_height,
         )
-        if dense_atlas:
-            (
-                image,
-                dropped_chars,
-                dropped_codepoints,
-            ) = _render_dense_atlas_page(
-                render_lines,
-                profile,
-                slot_chunk,
-                atlas_mode,
+        (
+            image,
+            dropped_chars,
+            dropped_codepoints,
+        ) = _render_dense_atlas_page(
+            render_lines,
+            profile,
+            slot_chunk,
+            atlas_mode,
+        )
+        if dropped_chars:
+            missing = ", ".join(sorted(dropped_codepoints))
+            raise RuntimeError(
+                "frozen atlas dropped characters after preprocessing: "
+                f"{missing}",
             )
-        else:
-            dropped_chars = 0
-            dropped_codepoints = {}
-            image = Image.new("L", (profile.width, height), 255)
-            draw = ImageDraw.Draw(image)
-            for row, line in enumerate(render_lines):
-                _draw_grid_line(
-                    draw,
-                    line,
-                    x=profile.padding,
-                    y=profile.padding + row * profile.line_height,
-                    profile=profile,
-                    primary=primary,
-                    fallback=fallback,
-                )
         png = (
             _encode_rgb_png(image.tobytes(), profile.width, height)
             if image.mode == "RGB"

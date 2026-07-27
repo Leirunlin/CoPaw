@@ -46,8 +46,10 @@ from ..providers.retry_chat_model import (
 )
 from ..token_usage import TokenRecordingModelWrapper
 
-# TODO: Remove this workaround after AgentScope emits stable identifiers when
-# promoting tool-result media.
+# TODO(AgentScope compatibility): This is a temporary workaround for
+# AgentScope releases that emit random promoted-media identifiers. Remove it
+# once QwenPaw's minimum AgentScope version provides stable, request-unique
+# identifiers; QwenPaw should then preserve the upstream identifiers.
 _PROMOTED_TOOL_MEDIA_LABEL = re.compile(r"^-\s+([^\s]+)\s+\(")
 
 
