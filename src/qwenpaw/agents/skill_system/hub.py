@@ -1676,7 +1676,12 @@ async def _fetch_bundle_from_lobehub_url(
         ) from e
     except ValueError as e:
         raise SkillsError(message=f"LobeHub skill download failed: {e}") from e
-    return _lobehub_zip_to_bundle(identifier, payload), bundle_url
+    bundle = await asyncio.to_thread(
+        _lobehub_zip_to_bundle,
+        identifier,
+        payload,
+    )
+    return bundle, bundle_url
 
 
 # ---------- Provider: ModelScope (archive zip) -----------------------------
@@ -1832,7 +1837,12 @@ async def _fetch_bundle_from_qwenpaw_url(
         if owner
         else _qwenpaw_detail_archive_to_bundle
     )
-    return converter(payload, fallback_name=skill_name), bundle_url
+    bundle = await asyncio.to_thread(
+        converter,
+        payload,
+        fallback_name=skill_name,
+    )
+    return bundle, bundle_url
 
 
 async def _fetch_bundle_from_modelscope_url(
@@ -1868,10 +1878,12 @@ async def _fetch_bundle_from_modelscope_url(
                 "instead."
             ),
         ) from e
-    return (
-        _modelscope_archive_to_bundle(payload, fallback_name=skill_name),
-        bundle_url,
+    bundle = await asyncio.to_thread(
+        _modelscope_archive_to_bundle,
+        payload,
+        fallback_name=skill_name,
     )
+    return bundle, bundle_url
 
 
 # ---------- Provider: Aliyun AgentExplorer (signed API) --------------------
