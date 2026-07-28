@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ..config import (
     CANVAS_MAX_HEIGHT,
@@ -21,9 +19,6 @@ from ..config import (
 
 if TYPE_CHECKING:
     from ..rendering import RenderedPage
-
-_QWENPAW_PACKAGE_ROOT = Path(__file__).resolve().parents[4]
-_TOKENIZER_JSON = _QWENPAW_PACKAGE_ROOT / "tokenizer" / "tokenizer.json"
 
 
 @dataclass(frozen=True)
@@ -48,27 +43,16 @@ class RequestBudget:
         )
 
 
-@lru_cache(maxsize=1)
-def _load_qwen_tokenizer() -> Any:
-    """Load the bundled Qwen tokenizer without downloading model assets."""
-    from tokenizers import Tokenizer
-
-    return Tokenizer.from_file(str(_TOKENIZER_JSON))
-
-
 def count_text_tokens(text: str, chars_per_token: float = 4.0) -> int:
-    """Count Qwen text tokens exactly; retain a conservative local fallback."""
+    """Estimate tokens with the provider-independent UTF-8 byte convention."""
     if not text:
         return 0
-    try:
-        return len(_load_qwen_tokenizer().encode(text).ids)
-    except (OSError, ValueError, RuntimeError, ImportError):
-        return max(
-            1,
-            math.ceil(
-                len(text.encode("utf-8")) / max(1.0, float(chars_per_token)),
-            ),
-        )
+    return max(
+        1,
+        int(
+            len(text.encode("utf-8")) / max(1.0, float(chars_per_token)) + 0.5,
+        ),
+    )
 
 
 def estimate_image_tokens(pages: list["RenderedPage"]) -> int:
