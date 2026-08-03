@@ -494,46 +494,6 @@ export const skillApi = {
       body: JSON.stringify(payload),
     }),
 
-  getSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-    ),
-
-  updateSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      },
-    ),
-
-  deleteSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
-    ),
-
-  getPoolSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-    ),
-
-  updatePoolSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      },
-    ),
-
-  deletePoolSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
-    ),
-
   streamOptimizeSkill: async function (
     content: string,
     onChunk: (text: string) => void,

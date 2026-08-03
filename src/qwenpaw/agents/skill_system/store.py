@@ -25,7 +25,10 @@ import yaml
 
 from ...exceptions import SkillsError
 from ...security.skill_scanner import scan_skill_directory
-from ..utils.file_handling import read_text_file_with_encoding_fallback
+from ..utils.file_handling import (
+    read_text_file_with_encoding_fallback,
+    single_line_log_value,
+)
 from .models import SkillInfo, SkillRequirements
 
 try:
@@ -271,9 +274,9 @@ def read_skill_frontmatter_from_dir(
         logger.warning(
             "Failed to read SKILL frontmatter for '%s' at %s: %s. "
             "Using fallback values.",
-            skill_name,
-            skill_md,
-            exc,
+            single_line_log_value(skill_name),
+            single_line_log_value(skill_md),
+            single_line_log_value(exc),
         )
         return fallback
 
@@ -301,16 +304,16 @@ def read_skill_frontmatter_from_dir(
         logger.warning(
             "Failed to parse SKILL frontmatter for '%s' at %s: %s. "
             "Using fallback values.",
-            skill_name,
-            skill_md,
-            parse_error,
+            single_line_log_value(skill_name),
+            single_line_log_value(skill_md),
+            single_line_log_value(parse_error),
         )
     else:
         logger.warning(
             "Failed to decode SKILL frontmatter for '%s' at %s. "
             "Using fallback values.",
-            skill_name,
-            skill_md,
+            single_line_log_value(skill_name),
+            single_line_log_value(skill_md),
         )
     return fallback
 
@@ -623,11 +626,17 @@ def _safe_child_path(base_dir: Path, relative_name: str) -> Path:
 
 def normalize_skill_dir_name(name: str) -> str:
     """Normalize and validate a skill directory name."""
-    normalized = str(name or "").strip()
+    raw_name = str(name or "")
+    if any(
+        ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F
+        for character in raw_name
+    ):
+        raise SkillsError(
+            message="Skill name cannot contain control characters",
+        )
+    normalized = raw_name.strip()
     if not normalized:
         raise SkillsError(message="Skill name cannot be empty")
-    if "\x00" in normalized:
-        raise SkillsError(message="Skill name cannot contain NUL bytes")
     if normalized in {".", ".."}:
         raise SkillsError(message=f"Invalid skill name: {normalized}")
     if "/" in normalized or "\\" in normalized:
@@ -640,9 +649,10 @@ def normalize_skill_dir_name(name: str) -> str:
 def safe_skill_dir(base_dir: Path, name: str) -> Path:
     """Normalize a skill name and resolve it inside ``base_dir``.
 
-    Layered defense: ``normalize_skill_dir_name`` already rejects empty,
-    NUL, ``.``, ``..``, ``/`` and ``\\``; the resolve + ``is_relative_to``
-    check guards against future relaxations and platform-specific quirks.
+    Layered defense: ``normalize_skill_dir_name`` already rejects empty names,
+    control characters, ``.``, ``..``, ``/`` and ``\\``; the resolve +
+    ``is_relative_to`` check guards against future relaxations and
+    platform-specific quirks.
     """
     normalized = normalize_skill_dir_name(name)
     candidate = (base_dir / normalized).resolve()
@@ -800,7 +810,11 @@ def read_skill_content_and_metadata_from_dir(
         )
         return content, metadata
     except Exception as exc:
-        logger.error("Failed to read skill content from %s: %s", skill_md, exc)
+        logger.error(
+            "Failed to read skill content from %s: %s",
+            single_line_log_value(skill_md),
+            single_line_log_value(exc),
+        )
         return None
 
 
