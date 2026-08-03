@@ -7,6 +7,8 @@ import type {
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
+  PoolSkillDetail,
+  SkillDetail,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
@@ -152,6 +154,18 @@ export const skillApi = {
     setCache(cacheKey, data);
     return data;
   },
+
+  getSkill: (skillName: string, agentId?: string) => {
+    const opts: RequestInit = {};
+    if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
+    return request<SkillDetail>(
+      `/skills/${encodeURIComponent(skillName)}`,
+      opts,
+    );
+  },
+
+  getPoolSkill: (skillName: string) =>
+    request<PoolSkillDetail>(`/skills/pool/${encodeURIComponent(skillName)}`),
 
   refreshSkills: async (agentId?: string) => {
     const opts: RequestInit = { method: "POST" };

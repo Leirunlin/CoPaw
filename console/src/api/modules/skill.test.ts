@@ -110,6 +110,27 @@ describe("skillApi.listSkillPoolSkills", () => {
   });
 });
 
+describe("skillApi skill details", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("loads one workspace skill with the selected agent header", async () => {
+    vi.mocked(request).mockResolvedValue({ name: "demo", content: "body" });
+    await skillApi.getSkill("my skill", "agent-1");
+    expect(request).toHaveBeenCalledWith(
+      "/skills/my%20skill",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
+    const options = vi.mocked(request).mock.calls[0][1] as RequestInit;
+    expect((options.headers as Headers).get("X-Agent-Id")).toBe("agent-1");
+  });
+
+  it("loads one pool skill", async () => {
+    vi.mocked(request).mockResolvedValue({ name: "demo", content: "body" });
+    await skillApi.getPoolSkill("my skill");
+    expect(request).toHaveBeenCalledWith("/skills/pool/my%20skill");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // refreshSkills — POST + cache update
 // ---------------------------------------------------------------------------

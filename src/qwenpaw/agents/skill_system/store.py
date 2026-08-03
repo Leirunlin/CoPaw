@@ -48,6 +48,16 @@ logger = logging.getLogger(__name__)
 _RegistryResult = TypeVar("_RegistryResult")
 _MAX_ZIP_BYTES = 200 * 1024 * 1024
 _REQUIREMENTS_METADATA_NAMESPACES = ("openclaw", "qwenpaw", "clawdbot")
+_FRONTMATTER_ENCODINGS = (
+    "utf-8-sig",
+    "utf-8",
+    "gbk",
+    "cp936",
+    "cp1252",
+    "latin-1",
+)
+_MAX_FRONTMATTER_LINES = 4096
+_MAX_FRONTMATTER_BYTES = 256 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +225,94 @@ def _read_frontmatter_safe(
             e,
         )
         return {"name": skill_name, "description": ""}
+
+
+def _read_bounded_frontmatter_bytes(skill_md: Path) -> bytes | None:
+    """Read one bounded ``---``-delimited YAML header as raw bytes."""
+    raw_frontmatter: bytes | None = None
+    with skill_md.open("rb") as handle:
+        first_line = handle.readline(_MAX_FRONTMATTER_BYTES + 1)
+        valid_header = (
+            len(first_line) <= _MAX_FRONTMATTER_BYTES
+            and first_line.removeprefix(b"\xef\xbb\xbf").strip() == b"---"
+        )
+        lines = [first_line]
+        bytes_read = len(first_line)
+        for _ in range(_MAX_FRONTMATTER_LINES - 1):
+            if not valid_header:
+                break
+            remaining = _MAX_FRONTMATTER_BYTES - bytes_read
+            if remaining <= 0:
+                break
+            line = handle.readline(remaining + 1)
+            if not line or len(line) > remaining:
+                break
+            lines.append(line)
+            bytes_read += len(line)
+            if line.strip() == b"---":
+                raw_frontmatter = b"".join(lines)
+                break
+    return raw_frontmatter
+
+
+def read_skill_frontmatter_from_dir(
+    skill_dir: Path,
+    skill_name: str = "",
+) -> dict[str, Any]:
+    """Read only the YAML header of ``SKILL.md`` with encoding fallback."""
+    if not skill_name:
+        skill_name = skill_dir.name
+    skill_md = skill_dir / "SKILL.md"
+    fallback = {"name": skill_name, "description": ""}
+
+    try:
+        raw_frontmatter = _read_bounded_frontmatter_bytes(skill_md)
+    except OSError as exc:
+        logger.warning(
+            "Failed to read SKILL frontmatter for '%s' at %s: %s. "
+            "Using fallback values.",
+            skill_name,
+            skill_md,
+            exc,
+        )
+        return fallback
+
+    if raw_frontmatter is None:
+        return fallback
+
+    metadata: dict[str, Any] | None = None
+    parse_error: Exception | None = None
+    for encoding in _FRONTMATTER_ENCODINGS:
+        try:
+            text = raw_frontmatter.decode(encoding)
+            post = frontmatter.loads(text)
+            metadata = dict(post.metadata)
+            break
+        except UnicodeDecodeError:
+            continue
+        except (LookupError, yaml.YAMLError, TypeError, ValueError) as exc:
+            parse_error = exc
+            break
+
+    if metadata is not None:
+        return metadata
+
+    if parse_error is not None:
+        logger.warning(
+            "Failed to parse SKILL frontmatter for '%s' at %s: %s. "
+            "Using fallback values.",
+            skill_name,
+            skill_md,
+            parse_error,
+        )
+    else:
+        logger.warning(
+            "Failed to decode SKILL frontmatter for '%s' at %s. "
+            "Using fallback values.",
+            skill_name,
+            skill_md,
+        )
+    return fallback
 
 
 def get_skill_mtime(skill_dir: Path) -> str:
@@ -646,18 +744,64 @@ def build_skill_metadata(
     reconcile. That keeps the manifest descriptive rather than authoritative
     for content details.
     """
-    post = _read_frontmatter_safe(skill_dir, skill_name)
+    post = read_skill_frontmatter_from_dir(skill_dir, skill_name)
+    return _build_skill_metadata_from_post(
+        skill_name,
+        skill_dir,
+        post,
+        source=source,
+        protected=protected,
+    )
+
+
+def _build_skill_metadata_from_post(
+    skill_name: str,
+    skill_dir: Path,
+    post: dict[str, Any],
+    *,
+    source: str,
+    protected: bool = False,
+) -> dict[str, Any]:
     requirements = _extract_requirements(post)
     return {
         "name": skill_name,
         "description": str(post.get("description", "") or ""),
         "version_text": extract_version(post),
+        "emoji": _extract_emoji_from_metadata(post.get("metadata", {})),
         "commit_text": "",
         "source": source,
         "protected": protected,
         "requirements": requirements.model_dump(),
         "updated_at": get_skill_mtime(skill_dir),
     }
+
+
+def read_skill_content_and_metadata_from_dir(
+    skill_name: str,
+    skill_dir: Path,
+    *,
+    source: str,
+) -> tuple[str, dict[str, Any]] | None:
+    """Read and parse one SKILL.md once, without walking auxiliary files."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_dir.is_dir() or not skill_md.is_file():
+        return None
+    try:
+        content = read_text_file_with_encoding_fallback(skill_md)
+        try:
+            post = dict(frontmatter.loads(content).metadata)
+        except Exception:
+            post = {"name": skill_name, "description": ""}
+        metadata = _build_skill_metadata_from_post(
+            skill_name,
+            skill_dir,
+            post,
+            source=source,
+        )
+        return content, metadata
+    except Exception as exc:
+        logger.error("Failed to read skill content from %s: %s", skill_md, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
