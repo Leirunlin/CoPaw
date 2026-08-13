@@ -151,7 +151,10 @@ class AgentBuilder:
             if extra not in skill_dirs:
                 skill_dirs.append(extra)
 
-        return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+        from ..agents.skill_system.runtime_cache import load_runtime_skills
+
+        skills = await run_sync_io(load_runtime_skills, skill_dirs)
+        return Toolkit(tools=tools, skills_or_loaders=skills)
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
