@@ -67,7 +67,11 @@ class RuntimeSkillCache:
         key = os.path.normcase(os.fspath(snapshot.path))
         with self._lock:
             entry = self._entries.get(key)
-            if entry is not None and entry.signature == snapshot.signature:
+            if (
+                snapshot.stable
+                and entry is not None
+                and entry.signature == snapshot.signature
+            ):
                 self._entries.move_to_end(key)
                 return entry.record
 
@@ -99,6 +103,11 @@ class RuntimeSkillCache:
                     exc,
                 )
                 record = None
+
+            # An unstable snapshot is safe for this call, but its signature
+            # may describe different bytes. Do not reuse its parsed result.
+            if not snapshot.stable:
+                return record
 
             previous = self._entries.pop(key, None)
             if previous is not None:

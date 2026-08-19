@@ -38,6 +38,7 @@ class FileSnapshot:
     path: Path
     signature: FileSignature
     data: bytes
+    stable: bool = True
 
     @property
     def byte_size(self) -> int:
@@ -142,8 +143,14 @@ class FileSnapshotCache:
             before = self._signature(path)
             data = path.read_bytes()
             after = self._signature(path)
-            last = FileSnapshot(path=path, signature=after, data=data)
-            if before == after and len(data) == after.size:
+            stable = before == after and len(data) == after.size
+            last = FileSnapshot(
+                path=path,
+                signature=after,
+                data=data,
+                stable=stable,
+            )
+            if stable:
                 return last, True
             if attempt == 0:
                 with self._lock:
