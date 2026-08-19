@@ -239,11 +239,9 @@ class AgentBuilder:
         workspace_skills = load_runtime_skills(workspace_skill_dirs)
         workspace_skill_names = {skill.name for skill in workspace_skills}
 
-        bound_skill_dirs = [
-            skill_dir
-            for skill_dir in dict.fromkeys(_bound_skill_loader_dirs(tools))
-            if skill_dir not in workspace_skill_dirs
-        ]
+        bound_skill_dirs = list(
+            dict.fromkeys(_bound_skill_loader_dirs(tools)),
+        )
         bound_skills = load_runtime_skills(bound_skill_dirs)
         return workspace_skills + [
             skill
