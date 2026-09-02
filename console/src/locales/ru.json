@@ -3944,8 +3944,6 @@
     "checkAgentTaskDefault": "Проверить задачу",
     "delegateExternalAgent": "Делегировать {{runner}}",
     "delegateExternalAgentDefault": "Делегировать внешнему агенту",
-    "materializeSkill": "Создать {{skill}}",
-    "materializeSkillDefault": "Создать навык",
     "shell": "Выполнить {{command}}",
     "shellDefault": "Выполнить команду",
     "formatTable": {
