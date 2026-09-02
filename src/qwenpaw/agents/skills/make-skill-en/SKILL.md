@@ -26,7 +26,7 @@ The batch may cover all or only one compilable region. One substantial helper or
 
 When selecting `batch: true`, read [run batch](references/run-batch.md) before finalizing the workflow and file tree. Keep the implementation small: use the real tool contract, expose failures clearly, and let the future agent adjust when a run fails instead of building speculative fallback layers.
 
-Planning is read-only except for running `scripts/create_plan.py`: use conversation evidence and existing artifacts, but do not execute or probe the proposed workflow, create files, or initialize a draft. Pass the candidate through stdin:
+Planning is read-only except for running `python scripts/create_plan.py`: use conversation evidence and existing artifacts, but do not execute or probe the proposed workflow, create files, or initialize a draft. Pass the candidate through stdin:
 
 ```json
 {
@@ -63,7 +63,7 @@ This version creates new Skills only. Resolve a name conflict through a newly ap
 
 ## Build
 
-After approval, call `scripts/init_draft.py` through stdin:
+After approval, run `python scripts/init_draft.py` with JSON through stdin:
 
 ```json
 {"workspace": "/workspace/path", "plan": {"...": "complete normalized plan"}}
@@ -86,7 +86,7 @@ For background execution, give the generic subagent the complete approved plan, 
 
 ## Validate, test, and publish
 
-Before executing any draft script or batch, call `scripts/validate_skill.py` through stdin:
+Before executing any draft script or batch, run `python scripts/validate_skill.py` with JSON through stdin:
 
 ```json
 {"workspace": "/workspace/path", "draft_id": "returned-draft-id"}
@@ -94,7 +94,7 @@ Before executing any draft script or batch, call `scripts/validate_skill.py` thr
 
 Fix reported static or security errors in the draft and validate again. Testing is independent of Batch: run exactly the approved behavior test according to [behavior testing](references/behavior-testing.md), and let `off` perform no draft execution. When a test or Batch run fails, retain the draft, report the concrete error, revise the Skill if the correction is clear, then validate again; do not hide the failure behind a fallback.
 
-Publish the unchanged validated draft by calling `scripts/publish_skill.py` through stdin:
+Publish the unchanged validated draft by running `python scripts/publish_skill.py` with JSON through stdin:
 
 ```json
 {"workspace": "/workspace/path", "draft_id": "returned-draft-id", "expected_digest": "digest-from-validation"}

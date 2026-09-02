@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -827,18 +828,28 @@ def normalize_skill_dir_name(name: str) -> str:
     return normalized
 
 
-def safe_skill_dir(base_dir: Path, name: str) -> Path:
+def safe_skill_dir(
+    base_dir: Path,
+    name: str,
+) -> Path:
     """Normalize a skill name and resolve it inside ``base_dir``.
 
     Layered defense: ``normalize_skill_dir_name`` already rejects empty names,
-    control characters, ``.``, ``..``, ``/`` and ``\\``; the resolve +
-    ``is_relative_to`` check guards against future relaxations and
-    platform-specific quirks.
+    control characters, ``.``, ``..``, ``/`` and ``\\``; the common-path
+    checks guard against future relaxations and platform-specific quirks.
     """
     normalized = normalize_skill_dir_name(name)
-    candidate = (base_dir / normalized).resolve()
     base_resolved = base_dir.resolve()
-    if not candidate.is_relative_to(base_resolved):
+    candidate = (base_resolved / normalized).resolve()
+    try:
+        common = os.path.commonpath(
+            [os.fspath(base_resolved), os.fspath(candidate)],
+        )
+    except ValueError as exc:
+        raise SkillsError(
+            message=f"Unsafe skill path outside root: {name}",
+        ) from exc
+    if common != os.fspath(base_resolved):
         raise SkillsError(
             message=f"Unsafe skill path outside root: {name}",
         )

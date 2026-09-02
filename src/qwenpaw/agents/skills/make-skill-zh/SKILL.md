@@ -26,7 +26,7 @@ Batch 可以覆盖全部流程，也可以只覆盖一个可编译区域。一�
 
 选择 `batch: true` 后，在最终确定 workflow 和文件树前阅读[运行 Batch](references/run-batch.md)。实现保持小而清楚：依照真实工具契约，明确暴露失败；运行失败时让未来 agent 据此调整，不预建推测性的 fallback 层。
 
-计划阶段除运行 `scripts/create_plan.py` 外只读：依据对话证据和已有产物判断，不执行或探测候选工作流，不创建文件，也不初始化 draft。通过 stdin 传入候选计划：
+计划阶段除运行 `python scripts/create_plan.py` 外只读：依据对话证据和已有产物判断，不执行或探测候选工作流，不创建文件，也不初始化 draft。通过 stdin 传入候选计划：
 
 ```json
 {
@@ -63,7 +63,7 @@ Batch 可以覆盖全部流程，也可以只覆盖一个可编译区域。一�
 
 ## 构建
 
-批准后通过 stdin 调用 `scripts/init_draft.py`：
+批准后运行 `python scripts/init_draft.py`，并通过 stdin 传入 JSON：
 
 ```json
 {"workspace": "/workspace/path", "plan": {"...": "完整规范化计划"}}
@@ -86,7 +86,7 @@ description: 简要说明能力及适用场景。
 
 ## 校验、测试并发布
 
-执行任何 draft script 或 batch 前，先通过 stdin 调用 `scripts/validate_skill.py`：
+执行任何 draft script 或 batch 前，先运行 `python scripts/validate_skill.py`，并通过 stdin 传入 JSON：
 
 ```json
 {"workspace": "/workspace/path", "draft_id": "returned-draft-id"}
@@ -94,7 +94,7 @@ description: 简要说明能力及适用场景。
 
 按静态或安全错误修复 draft 并重新校验。测试与 Batch 相互独立：按[行为测试](references/behavior-testing.md)只运行已批准的测试，`off` 不执行 draft。测试或 Batch 运行失败时保留 draft，报告具体错误；如果修正方向明确，就修改 Skill 后重新校验，不用 fallback 隐藏失败。
 
-通过 stdin 调用 `scripts/publish_skill.py`，发布未经改动且已校验的 draft：
+运行 `python scripts/publish_skill.py`，并通过 stdin 传入 JSON，以发布未经改动且已校验的 draft：
 
 ```json
 {"workspace": "/workspace/path", "draft_id": "returned-draft-id", "expected_digest": "digest-from-validation"}

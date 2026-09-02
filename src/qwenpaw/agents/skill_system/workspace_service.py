@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -88,13 +89,20 @@ def _register_workspace_skill_entry(
 
 
 def _resolve_install_source(source_dir: Path) -> Path:
-    source_dir = Path(source_dir).expanduser()
-    if source_dir.is_symlink() or not source_dir.is_dir():
+    source_value = os.path.abspath(
+        os.path.expanduser(os.fspath(source_dir)),
+    )
+    if os.path.islink(source_value) or not os.path.isdir(source_value):
         raise SkillsError(message="Skill source must be a directory")
-    if not (source_dir / "SKILL.md").is_file():
+    source_root = os.path.realpath(source_value)
+    skill_md = os.path.realpath(os.path.join(source_root, "SKILL.md"))
+    if os.path.commonpath(
+        [source_root, skill_md],
+    ) != source_root or not os.path.isfile(skill_md):
         raise SkillsError(message="Skill source must contain SKILL.md")
+    resolved_source = Path(source_root)
     try:
-        for path in source_dir.rglob("*"):
+        for path in resolved_source.rglob("*"):
             if path.is_symlink():
                 raise SkillsError(
                     message=f"Symlink not allowed in skill: {path}",
@@ -105,7 +113,7 @@ def _resolve_install_source(source_dir: Path) -> Path:
                 )
     except OSError as exc:
         raise SkillsError(message="Could not inspect Skill source") from exc
-    return source_dir.resolve(strict=True)
+    return resolved_source
 
 
 def _resolve_install_root(workspace_dir: Path, source_root: Path) -> Path:
@@ -267,13 +275,15 @@ class SkillService:
             skill_name = normalize_skill_dir_name(target_name or declared_name)
             scan_skill_dir_or_raise(stage, skill_name)
 
-            raw_target = resolved_skill_root / skill_name
-            if raw_target.exists() or raw_target.is_symlink():
+            target_dir = safe_skill_dir(
+                resolved_skill_root,
+                skill_name,
+            )
+            if target_dir.exists() or target_dir.is_symlink():
                 return _install_conflict_result(
                     resolved_skill_root,
                     skill_name,
                 )
-            target_dir = safe_skill_dir(resolved_skill_root, skill_name)
             manifest_path = get_workspace_skill_manifest_path(
                 self.workspace_dir,
             )
