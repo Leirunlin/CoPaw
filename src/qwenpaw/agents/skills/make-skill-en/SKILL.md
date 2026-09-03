@@ -12,6 +12,8 @@ metadata:
 
 Create one new workspace Skill from the raw current conversation. Use the scripts in this directory for the lifecycle below; do not rely on a make-skill-specific core tool, mode, or state store.
 
+Run each documented `python scripts/...` command through `execute_shell_command`, setting `cwd` to this Skill's `<dir>` from the available-skills entry; every script reads one JSON object from stdin (or `--input <file>`) and writes one JSON object to stdout.
+
 ## Plan
 
 The focus in `/make-skill <focus>` is required. For a natural-language request, infer it from the request and current conversation. Later user corrections replace conflicting earlier rules. Preserve stable guidance, contracts, templates, and workflows that should change future behavior; exclude one-off data, temporary paths, secrets, and retry chatter.

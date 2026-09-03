@@ -12,6 +12,8 @@ metadata:
 
 从当前原始对话创建一个新的 workspace Skill。按以下生命周期使用本目录脚本，不依赖 make-skill 专属的 core tool、mode 或状态存储。
 
+通过 `execute_shell_command` 运行下文每个 `python scripts/...` 命令，并将 `cwd` 设为 available-skills 条目中本 Skill 的 `<dir>`；每个脚本从 stdin（或 `--input <file>`）读取一个 JSON 对象，并向 stdout 写出一个 JSON 对象。
+
 ## 计划
 
 `/make-skill <focus>` 的 focus 必填；自然语言请求则结合请求和当前对话推断。用户较晚的纠正会替换冲突的旧规则。保留会改变未来 agent 行为的稳定指导、契约、模板和流程，排除一次性数据、临时路径、密钥与重试噪声。

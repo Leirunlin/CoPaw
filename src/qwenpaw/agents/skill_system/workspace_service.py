@@ -94,13 +94,11 @@ def _resolve_install_source(source_dir: Path) -> Path:
     )
     if os.path.islink(source_value) or not os.path.isdir(source_value):
         raise SkillsError(message="Skill source must be a directory")
-    source_root = os.path.realpath(source_value)
-    skill_md = os.path.realpath(os.path.join(source_root, "SKILL.md"))
-    if os.path.commonpath(
-        [source_root, skill_md],
-    ) != source_root or not os.path.isfile(skill_md):
+    source_root = Path(source_value).resolve()
+    skill_md = (source_root / "SKILL.md").resolve()
+    if not skill_md.is_relative_to(source_root) or not skill_md.is_file():
         raise SkillsError(message="Skill source must contain SKILL.md")
-    resolved_source = Path(source_root)
+    resolved_source = source_root
     try:
         for path in resolved_source.rglob("*"):
             if path.is_symlink():
@@ -251,7 +249,12 @@ class SkillService:
         installed_from: str = "",
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Install one complete Skill directory without overwriting files."""
+        """Install one complete local Skill directory without overwriting.
+
+        ``source_dir`` must be selected by a trusted caller, must not be a
+        symlink, and must contain ``SKILL.md``. Raw client-provided paths must
+        not be forwarded to this filesystem API.
+        """
         source_root = _resolve_install_source(source_dir)
         resolved_skill_root = _resolve_install_root(
             self.workspace_dir,
@@ -325,16 +328,28 @@ class SkillService:
                         shutil.rmtree(target_dir)
                     except OSError as cleanup_exc:
                         raise SkillsError(
-                            message="Manifest update and rollback failed",
+                            message=(
+                                "Workspace skill files were created, but "
+                                "manifest update failed and rollback cleanup "
+                                "also failed."
+                            ),
                             details={
                                 "skill_name": skill_name,
-                                "path": str(target_dir),
+                                "workspace_dir": str(self.workspace_dir),
+                                "manifest_path": str(manifest_path),
                                 "cleanup_error": str(cleanup_exc),
                             },
                         ) from exc
                 raise SkillsError(
-                    message="Skill manifest update failed; files rolled back",
-                    details={"skill_name": skill_name},
+                    message=(
+                        "Workspace skill files were created, but manifest "
+                        "update failed. File changes were rolled back."
+                    ),
+                    details={
+                        "skill_name": skill_name,
+                        "workspace_dir": str(self.workspace_dir),
+                        "manifest_path": str(manifest_path),
+                    },
                 ) from exc
 
             if conflict:
