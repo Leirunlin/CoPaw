@@ -22,11 +22,11 @@ metadata:
 
 ### Batch workflow
 
-存储 Batch 是随 workflow Skill 一起提供的参数化 `run_tool_batch` 程序。应根据未来实现判断，而不是照搬当前 transcript。只要下一步动作、分支和成功条件能在执行前说明，并且统一入口能实质减少 agent 与工具往返，就设置 `batch: true`。运行时 observation、数据依赖、perception 和最终 agent review 本身都不排除 Batch。
+存储 Batch 是随 workflow Skill 一起提供的参数化 `run_tool_batch` 程序。当一个可复用区域的动作、分支和成功条件能在执行前说明，并且存储入口能实质减少 agent 与工具往返时，设置 `batch: true`。该区域可以是完整 workflow、一个 substantial helper，或一个语义完整的 tool-native action；action 数量不是判据。只要处理规则已经确定，运行时数据、observation 和最终 agent review 都不妨碍使用 Batch。
 
-Batch 可以覆盖全部流程，也可以只覆盖一个可编译区域。一个 substantial helper 或一个语义完整的 tool-native action 也可能值得保存；顶层 action 数量不是判据。只有运行时必须重新发明下一步或成功条件，或者统一入口没有实际复用价值时，才设置 `batch: false`。用户明确要求 Batch 时，把它视为已批准的计划修订，直接修改计划，不再争论 eligibility。
+只有运行时必须重新发明下一步或成功条件，或者统一入口没有实际复用价值时，才设置 `batch: false`。用户明确要求 Batch 时，把它视为已批准的计划修订，直接修改计划，不再争论 eligibility。
 
-选择 `batch: true` 后，在最终确定 workflow 和文件树前阅读[运行 Batch](references/run-batch.md)。实现保持小而清楚：依照真实工具契约，明确暴露失败；运行失败时让未来 agent 据此调整，不预建推测性的 fallback 层。
+只有选择 `batch: true` 后，才在最终确定 workflow 和文件树前阅读[运行 Batch](references/run-batch.md)；`batch: false` 时不要读取。
 
 计划阶段除运行 `python scripts/create_plan.py` 外只读：依据对话证据和已有产物判断，不执行或探测候选工作流，不创建文件，也不初始化 draft。通过 stdin 传入候选计划：
 

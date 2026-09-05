@@ -22,11 +22,11 @@ Read [primary type and package](references/type-and-package.md), then choose one
 
 ### Batch workflows
 
-A stored batch is a parameterized `run_tool_batch` program bundled with a workflow Skill. Judge it from the future implementation, not the shape of the current transcript. Use `batch: true` when the next actions, branches, and success conditions can be stated before execution and one reusable entrypoint saves meaningful agent-tool round trips. Runtime observations, data dependencies, perception, and a final agent review do not by themselves prevent batching.
+A stored batch is a parameterized `run_tool_batch` program bundled with a workflow Skill. Use `batch: true` when a reusable region's actions, branches, and success condition can be stated before execution and one stored entrypoint saves meaningful agent-tool round trips. The region may be the whole workflow, one substantial helper, or one semantic tool-native action; action count is not the criterion. Runtime data, observations, and a final agent review do not prevent batching when the rule for handling them is already known.
 
-The batch may cover all or only one compilable region. One substantial helper or one semantic tool-native action can be worthwhile; top-level action count is not the criterion. Use `batch: false` only when execution must invent the next action or success condition at runtime, or a shared entrypoint has no practical reuse value. If the user explicitly requests Batch, treat it as an approved plan refinement and revise the plan without reopening eligibility.
+Use `batch: false` only when execution must invent the next action or success condition at runtime, or a shared entrypoint has no practical reuse value. If the user explicitly requests Batch, treat it as an approved plan refinement and revise the plan without reopening eligibility.
 
-When selecting `batch: true`, read [run batch](references/run-batch.md) before finalizing the workflow and file tree. Keep the implementation small: use the real tool contract, expose failures clearly, and let the future agent adjust when a run fails instead of building speculative fallback layers.
+Only after selecting `batch: true`, read [run batch](references/run-batch.md) before finalizing the workflow and file tree. When `batch: false`, do not read it.
 
 Planning is read-only except for running `python scripts/create_plan.py`: use conversation evidence and existing artifacts, but do not execute or probe the proposed workflow, create files, or initialize a draft. Pass the candidate through stdin:
 

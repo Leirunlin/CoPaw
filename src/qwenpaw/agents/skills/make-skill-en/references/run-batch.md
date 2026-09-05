@@ -1,6 +1,6 @@
 # Build a stored batch
 
-Read this reference only after choosing `batch: true`. Encode the approved reusable region in `scripts/<name>.batch.json`. Prefer one stored entrypoint; split it only when an intervening user or agent decision genuinely separates independent phases. A good Batch is a small, self-contained program whose inputs, actions, output, and failure meaning are clear to an agent seeing it for the first time.
+Encode the approved reusable region in `scripts/<name>.batch.json`. Prefer one stored entrypoint; split it only when an intervening user or agent decision genuinely separates independent phases. A good Batch is a small, self-contained program whose inputs, actions, output, and failure meaning are clear to an agent seeing it for the first time.
 
 ## Compile the reusable region
 
@@ -12,9 +12,9 @@ Before writing JSON, state four things: caller inputs, actions and branches know
 - End with a compact result or assertion that distinguishes success from a partial run.
 - Prefer the direct implementation. Add retries or compatibility paths only when the workflow actually requires them.
 
-## Batch file
+## Batch file and tool contract
 
-Use a non-empty `actions` array. Each action names a registered tool and supplies its arguments. The `.batch.json` suffix lets make-skill recognize and validate the file.
+Use a non-empty `actions` array. Each action has a static `tool_name` and an `arguments` object. The tool must be available when the workflow runs; make-skill does not require it to be globally registered during validation, so plugin, MCP, and session tools remain valid. The `.batch.json` suffix lets make-skill recognize and validate the file.
 
 ```json
 {
@@ -36,15 +36,36 @@ Use a non-empty `actions` array. Each action names a registered tool and supplie
 
 Ground tool names, arguments, and result fields in real tool contracts or observed successful calls. Inspect the tool descriptions or a recent result when uncertain; omit unknown details instead of inventing them.
 
-## Data and control flow
+## Placeholder expansion
 
-Keep free-form executable fields such as a shell `command`, code body, or script source static; they must contain no `${args.*}`, `${steps.*}`, or `${vars.*}` binding. Prefer every other dynamic value as the complete value of a documented data parameter. If its surrounding text will be parsed as structure by another parser, insert it only when the tool explicitly performs the required encoding. A request/config file must be written structurally by a tool or receive dynamic values as complete data; hand-built serialized text is still templating. If no compact data boundary exists, leave parameter preparation or that phase agent-led.
+Placeholders are Batch data bindings in argument values, recursively inside objects and lists. Use only the brace-delimited forms below. In a shell `command`, use `$NAME` rather than `${NAME}` for ordinary shell variables because `${...}` is reserved for Batch placeholders.
 
-- `${args.name}` supplies runtime inputs. Every referenced argument must be present in the invocation.
-- `${steps.N.path}` reads a field from an earlier zero-based action. In a loop it resolves to that action's latest result.
+| Form | Value source | Resolution time |
+|---|---|---|
+| `${args.name}` | A caller value from `run_tool_batch(args=...)`; dotted paths may read nested objects | Once after loading the file, before any action runs |
+| `${steps.N.path}` | A field from an earlier zero-based action; loops use that action's latest result | Immediately before the consuming action |
+| `${vars.name}` | Scalar Batch state created earlier by `set_var` | Immediately before the consuming action |
+
+The execution model is:
+
+```text
+actions = resolve_args(load(file_path), args or {})  # missing reference: stop
+for action in actions:
+    arguments = resolve_steps_and_vars(action.arguments)
+    run control action or Toolkit.call_tool(action.tool_name, arguments)
+```
+
+Every referenced `${args.*}` path is required. If the file contains no `${args.*}`, the caller may omit `args`. To use a target tool's optional parameter or default, omit that field; to give the Batch a fixed default, write the literal value instead of a placeholder.
+
+A placeholder that is the complete string value preserves the resolved JSON type. A placeholder embedded in a larger string becomes text; non-string values are JSON-encoded. This permits placeholders in a shell `command`, code body, or script source, but Batch performs no quoting or escaping. Write the surrounding syntax so the expanded value has the intended meaning.
+
+The expanded action still follows the target tool's normal invocation path, including its existing policy checks, approval flow, and sandbox boundary.
+
+## Control flow and limits
+
 - `set_var` creates or updates scalar `${vars.name}` values with `arguments.expr`, such as `i=0` or `i=${vars.i}+1`.
 - `label` defines a jump target; `goto` jumps to it unconditionally or when `arguments.condition` is true. Use these for bounded branches, loops, or retries.
-- Actions run sequentially; batch is not parallel execution. Keep at most 50 static actions and never call `run_tool_batch` from inside a batch.
+- Actions run sequentially; Batch is not parallel execution. Keep at most 50 static actions and never call `run_tool_batch` from inside a Batch.
 
 ## Failure and generated Skill contract
 
@@ -52,7 +73,7 @@ A failed Batch is ordinary actionable feedback. Preserve and report the failing 
 
 Promise only behavior that the Batch and its helpers actually enforce. If a failed run would leave final artifacts that contradict the stated contract, move the relevant checks before the final write or narrow the promise. Keep a fallback only for a known environment difference, describe its degraded behavior accurately, and do not call unequal checks equivalent.
 
-The generated `SKILL.md` should state what the batch handles, what remains agent-led, its task inputs, its outputs, and the success or failure contract. Put one complete invocation before narrative steps so the stored file is the primary entrypoint:
+The generated `SKILL.md` should state what the Batch handles, what remains agent-led, its task inputs, outputs, and success or failure contract. Put one complete invocation before narrative steps so the stored file is the primary entrypoint:
 
 ```text
 run_tool_batch(
@@ -62,4 +83,4 @@ run_tool_batch(
 )
 ```
 
-Use an absolute `file_path` and invoke the stored file; do not reconstruct its actions inline. Keep `args` limited to values the real Batch needs, and include every referenced `${args.*}` value in the invocation. Use `last_only=true` only when the final action preserves the useful result. Testing is a separate plan choice: `batch: true` does not require `smoke` or `eval`.
+Use an absolute `file_path` and invoke the stored file; do not reconstruct its actions inline. Keep `args` limited to values the real Batch needs. Use `last_only=true` only when the final action preserves the useful result. Testing is a separate plan choice: `batch: true` does not require `smoke` or `eval`.

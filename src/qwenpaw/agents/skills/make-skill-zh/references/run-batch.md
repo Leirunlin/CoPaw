@@ -1,6 +1,6 @@
 # 构建存储 Batch
 
-只在选择 `batch: true` 后阅读本 reference。把批准的可复用区域写入 `scripts/<name>.batch.json`。默认提供一个存储主入口；只有中间确实需要用户或 agent 判断来分隔独立 phases 时才拆分。好的 Batch 是小而自洽的程序；第一次看到它的 agent 也能明确理解输入、动作、输出和失败含义。
+把批准的可复用区域写入 `scripts/<name>.batch.json`。默认提供一个存储主入口；只有中间确实需要用户或 agent 判断来分隔独立 phases 时才拆分。好的 Batch 是小而自洽的程序；第一次看到它的 agent 也能明确理解输入、动作、输出和失败含义。
 
 ## 编译可复用区域
 
@@ -12,9 +12,9 @@
 - 结尾返回紧凑结果或 assertion，让调用者能区分成功与部分运行。
 - 优先直接实现；只有 workflow 确实需要时才增加 retry 或 compatibility path。
 
-## Batch 文件
+## Batch 文件与工具契约
 
-使用非空 `actions` 数组。每个 action 指定已注册工具及其参数。make-skill 通过 `.batch.json` 后缀识别并校验文件。
+使用非空 `actions` 数组。每个 action 包含静态 `tool_name` 和 `arguments` 对象。工具必须在 workflow 运行时可用；make-skill 不要求它在校验阶段已全局注册，因此插件、MCP 和会话工具仍然有效。make-skill 通过 `.batch.json` 后缀识别并校验文件。
 
 ```json
 {
@@ -36,12 +36,33 @@
 
 工具名、参数和结果字段必须基于真实工具契约或已成功的调用。不确定时查看工具说明或近期结果；未知细节直接省略，不发明 schema。
 
-## 数据与控制流
+## 占位符展开
 
-shell `command`、code body、script source 等自由可执行字段必须保持静态，其中不得出现任何 `${args.*}`、`${steps.*}` 或 `${vars.*}` binding。其他动态值优先独占一个有文档契约的数据参数；若所在文本随后会被另一层 parser 当作结构解析，也只有在工具明确负责所需编码时才能插入。request/config 文件必须由工具结构化写入，或让动态值作为完整数据传递；手工拼接序列化文本仍然是模板。没有紧凑的数据边界时，把参数准备或该阶段留给 agent。
+占位符是 Batch 参数值中的数据绑定，可递归出现在对象和列表内。只使用下列带大括号的形式。在 shell `command` 中，普通 shell 变量使用 `$NAME` 而不是 `${NAME}`，因为 `${...}` 保留给 Batch 占位符。
 
-- `${args.name}` 提供运行输入；调用时必须传入所有被引用的参数。
-- `${steps.N.path}` 读取更早的零基 action 字段；循环中读取该 action 最近一次执行的结果。
+| 形式 | 值来源 | 展开时机 |
+|---|---|---|
+| `${args.name}` | `run_tool_batch(args=...)` 提供的调用者输入；点号路径可读取嵌套对象 | 文件加载后、任何 action 执行前统一展开 |
+| `${steps.N.path}` | 更早的零基 action 结果字段；循环中读取该 action 最近一次结果 | 使用它的 action 执行前 |
+| `${vars.name}` | 此前由 `set_var` 创建的标量 Batch 状态 | 使用它的 action 执行前 |
+
+执行模型如下：
+
+```text
+actions = resolve_args(load(file_path), args or {})  # 缺少已引用参数：停止
+for action in actions:
+    arguments = resolve_steps_and_vars(action.arguments)
+    执行控制 action 或 Toolkit.call_tool(action.tool_name, arguments)
+```
+
+每个被引用的 `${args.*}` 路径都是必填项；文件不含 `${args.*}` 时，调用者可以省略 `args`。要使用目标工具的可选参数或默认值，就省略该字段；要给 Batch 固定默认值，就直接写字面量而不是占位符。
+
+占位符独占整个字符串值时保留展开后的 JSON 类型；嵌入更长字符串时则变成文本，其中非字符串值使用 JSON 编码。因此 shell `command`、code body 或 script source 都可以包含占位符，但 Batch 不做引用或转义。应自行编写周边语法，确保展开值具有预期含义。
+
+展开后的 action 仍通过目标工具的正常调用路径执行，并继续接受该工具既有的 policy 检查、审批流程和 sandbox 边界约束。
+
+## 控制流与限制
+
 - `set_var` 通过 `arguments.expr` 创建或更新标量 `${vars.name}`，例如 `i=0` 或 `i=${vars.i}+1`。
 - `label` 定义跳转目标；`goto` 无条件跳转，或在 `arguments.condition` 为真时跳转。用它们表达有界分支、循环或重试。
 - action 顺序执行，Batch 不代表并行。静态 action 最多 50 个，Batch 内不得调用 `run_tool_batch`。
@@ -62,4 +83,4 @@ run_tool_batch(
 )
 ```
 
-`file_path` 使用绝对路径并调用存储文件，不要 inline 重建 actions。`args` 只包含真实 Batch 所需的值，并在调用中提供每个被引用的 `${args.*}`。只有最终 action 保留有用结果时才使用 `last_only=true`。测试是独立的计划选择：`batch: true` 不要求 `smoke` 或 `eval`。
+`file_path` 使用绝对路径并调用存储文件，不要 inline 重建 actions。`args` 只包含真实 Batch 所需的值。只有最终 action 保留有用结果时才使用 `last_only=true`。测试是独立的计划选择：`batch: true` 不要求 `smoke` 或 `eval`。

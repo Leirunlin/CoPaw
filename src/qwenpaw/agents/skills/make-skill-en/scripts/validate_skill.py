@@ -22,6 +22,8 @@ PLACEHOLDER_PATTERN = re.compile(r"\$\{([^{}]+)\}")
 ARG_PATTERN = re.compile(r"args\.([A-Za-z0-9_.-]+)")
 STEP_PATTERN = re.compile(r"steps\.(\d+)(?:\.[A-Za-z0-9_.-]+)?")
 VAR_PATTERN = re.compile(r"vars\.[A-Za-z_][A-Za-z0-9_.-]*")
+PLACEHOLDER_NAMESPACES = frozenset({"args", "steps", "vars"})
+TOOL_NAME_PLACEHOLDER_NAMESPACES: frozenset[str] = frozenset()
 
 
 def _failure(errors: list[dict[str, str]]) -> dict[str, Any]:
@@ -255,6 +257,66 @@ def _strings(value: Any):
             yield from _strings(item)
 
 
+def _validate_placeholders(
+    value: str,
+    path: str,
+    action_index: int,
+    errors: list[dict[str, str]],
+    *,
+    allowed_namespaces: frozenset[str] = PLACEHOLDER_NAMESPACES,
+) -> None:
+    """Validate placeholders in one Batch string."""
+    matches = PLACEHOLDER_PATTERN.findall(value)
+    if value.count("${") != len(matches):
+        errors.append(
+            create_plan.error(
+                "invalid-placeholder",
+                path,
+                "Placeholders must use balanced ${...} syntax.",
+            ),
+        )
+    for placeholder in matches:
+        step_match = STEP_PATTERN.fullmatch(placeholder)
+        if step_match:
+            namespace = "steps"
+        elif ARG_PATTERN.fullmatch(placeholder):
+            namespace = "args"
+        elif VAR_PATTERN.fullmatch(placeholder):
+            namespace = "vars"
+        else:
+            errors.append(
+                create_plan.error(
+                    "invalid-placeholder",
+                    path,
+                    f"Unsupported placeholder: ${{{placeholder}}}",
+                ),
+            )
+            continue
+
+        if namespace not in allowed_namespaces:
+            errors.append(
+                create_plan.error(
+                    "invalid-placeholder",
+                    path,
+                    f"${{{placeholder}}} is not supported in this field.",
+                ),
+            )
+            continue
+
+        if (
+            namespace == "steps"
+            and step_match
+            and int(step_match.group(1)) >= action_index
+        ):
+            errors.append(
+                create_plan.error(
+                    "forward-step-reference",
+                    path,
+                    "A step may reference only an earlier action.",
+                ),
+            )
+
+
 def _validate_batch(
     data: Any,
     path: str,
@@ -289,8 +351,12 @@ def _validate_batch(
                 ),
             )
             continue
-        tool_name = action.get("tool_name") or action.get("tool")
-        if not isinstance(tool_name, str) or not tool_name.strip():
+        raw_tool_name = action.get("tool_name") or action.get("tool")
+        tool_field = "tool_name"
+        if not action.get("tool_name") and action.get("tool"):
+            tool_field = "tool"
+        tool_name_path = f"{action_path}.{tool_field}"
+        if not isinstance(raw_tool_name, str) or not raw_tool_name.strip():
             errors.append(
                 create_plan.error(
                     "missing-tool-name",
@@ -298,14 +364,23 @@ def _validate_batch(
                     "Each action must name a tool.",
                 ),
             )
-        elif tool_name == "run_tool_batch":
-            errors.append(
-                create_plan.error(
-                    "recursive-batch",
-                    action_path,
-                    "Nested run_tool_batch calls are not allowed.",
-                ),
+        else:
+            tool_name = raw_tool_name.strip()
+            _validate_placeholders(
+                tool_name,
+                tool_name_path,
+                index,
+                errors,
+                allowed_namespaces=TOOL_NAME_PLACEHOLDER_NAMESPACES,
             )
+            if tool_name == "run_tool_batch":
+                errors.append(
+                    create_plan.error(
+                        "recursive-batch",
+                        action_path,
+                        "Nested run_tool_batch calls are not allowed.",
+                    ),
+                )
         arguments = action.get("arguments") or action.get("args") or {}
         if not isinstance(arguments, dict):
             errors.append(
@@ -317,37 +392,7 @@ def _validate_batch(
             )
             continue
         for value in _strings(arguments):
-            matches = PLACEHOLDER_PATTERN.findall(value)
-            if value.count("${") != len(matches):
-                errors.append(
-                    create_plan.error(
-                        "invalid-placeholder",
-                        action_path,
-                        "Placeholders must use balanced ${...} syntax.",
-                    ),
-                )
-            for placeholder in matches:
-                step_match = STEP_PATTERN.fullmatch(placeholder)
-                if step_match:
-                    if int(step_match.group(1)) >= index:
-                        errors.append(
-                            create_plan.error(
-                                "forward-step-reference",
-                                action_path,
-                                "A step may reference only an earlier action.",
-                            ),
-                        )
-                elif not (
-                    ARG_PATTERN.fullmatch(placeholder)
-                    or VAR_PATTERN.fullmatch(placeholder)
-                ):
-                    errors.append(
-                        create_plan.error(
-                            "invalid-placeholder",
-                            action_path,
-                            f"Unsupported placeholder: ${{{placeholder}}}",
-                        ),
-                    )
+            _validate_placeholders(value, action_path, index, errors)
 
 
 def _digest(
