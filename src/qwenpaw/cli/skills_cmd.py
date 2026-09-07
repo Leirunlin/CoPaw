@@ -40,7 +40,7 @@ from ..agents.skill_system.hub import (
 from ..agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..config import load_config
 from ..envs import load_envs
-from ..envs.store import _PROTECTED_BOOTSTRAP_KEYS
+from ..envs.registry import is_bootstrap_protected_env_key
 from ..exceptions import SkillsError
 from ..security.skill_scanner import SkillScanError, scan_skill_directory
 from .http import client, resolve_base_url
@@ -188,7 +188,7 @@ def _get_skill_test_env(
     configured_envs = {
         name: value
         for name, value in load_envs().items()
-        if name not in _PROTECTED_BOOTSTRAP_KEYS
+        if not is_bootstrap_protected_env_key(name)
     }
     env = {**configured_envs, **env}
     if (
