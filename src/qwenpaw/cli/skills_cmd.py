@@ -25,6 +25,7 @@ from ..agents.skill_system import (
 from ..agents.skill_system.models import SkillRequirements
 from ..agents.skill_system.registry import (
     _build_skill_config_env_overrides,
+    _skill_env_key,
     check_skill_dependencies,
 )
 from ..agents.skill_system.store import (
@@ -184,9 +185,9 @@ def _get_skill_test_env(
     workspace_dir: Path | None,
 ) -> dict[str, str]:
     """Resolve local skill env without mutating the process environment."""
-    env = dict(os.environ)
+    env = {_skill_env_key(key): value for key, value in os.environ.items()}
     configured_envs = {
-        name: value
+        _skill_env_key(name): value
         for name, value in load_envs().items()
         if not is_bootstrap_protected_env_key(name)
     }
@@ -210,7 +211,7 @@ def _get_skill_test_env(
         )
         for key, value in overrides.items():
             # Runtime injection also preserves existing values, even empty.
-            env.setdefault(key, value)
+            env.setdefault(_skill_env_key(key), value)
     return env
 
 

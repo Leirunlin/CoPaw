@@ -1215,6 +1215,11 @@ def list_workspaces() -> list[dict[str, str]]:
     return workspaces
 
 
+def _skill_env_key(key: str) -> str:
+    """Preserve platform env-key semantics in dependency-check snapshots."""
+    return key.upper() if os.name == "nt" else key
+
+
 def check_skill_dependencies(
     requirements: SkillRequirements,
     env: Mapping[str, str],
@@ -1223,7 +1228,7 @@ def check_skill_dependencies(
     """Return unmet prerequisites without logging or starting processes."""
     missing = []
     for env_name in requirements.require_envs:
-        if not env.get(env_name):
+        if not env.get(_skill_env_key(env_name)):
             missing.append(f"Environment variable not set: {env_name}")
 
     for binary in requirements.require_bins:
@@ -1277,7 +1282,10 @@ def resolve_effective_skills(
             post = load_skill_frontmatter_from_dir(skill_dir)
             requirements, errors = parse_skill_requirements(post)
             if not errors:
-                env = dict(os.environ)
+                env = {
+                    _skill_env_key(key): value
+                    for key, value in os.environ.items()
+                }
                 config = entry.get("config") or {}
                 if isinstance(config, dict) and config:
                     overrides = _build_skill_config_env_overrides(
@@ -1287,7 +1295,7 @@ def resolve_effective_skills(
                     )
                     for key, value in overrides.items():
                         # Runtime also preserves existing empty values.
-                        env.setdefault(key, value)
+                        env.setdefault(_skill_env_key(key), value)
                 errors = check_skill_dependencies(
                     requirements,
                     env,
