@@ -25,6 +25,7 @@ from ...drivers.errors import DriverCardError
 from ...drivers.storage import card_paths_for_name, load_card
 from ...exceptions import SkillsError
 from ...utils.file_snapshot_cache import FileSignature
+from ...utils.shell_normalization import shell_execution_path
 from ..utils.file_handling import (
     read_text_file_with_encoding_fallback,
     single_line_log_value,
@@ -1231,8 +1232,9 @@ def check_skill_dependencies(
         if not env.get(_skill_env_key(env_name)):
             missing.append(f"Environment variable not set: {env_name}")
 
+    search_path = shell_execution_path(env.get("PATH"))
     for binary in requirements.require_bins:
-        if shutil.which(binary, path=env.get("PATH")) is None:
+        if shutil.which(binary, path=search_path) is None:
             missing.append(f"CLI binary not found on PATH: {binary}")
 
     if workspace_dir is not None:
