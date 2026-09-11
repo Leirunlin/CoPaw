@@ -32,6 +32,7 @@ from ..config import (
 )
 from ..rendering import (
     RenderedPage,
+    count_render_cells,
     estimate_text_pages,
     prepare_render_text,
     render_rows_per_page,
@@ -196,52 +197,87 @@ def _history_batches(
     columns = (CANVAS_WIDTH - 2 * CANVAS_PADDING) // preset.cell_width
     rows_per_page = render_rows_per_page(preset, columns)
     min_page_rows = ceil(rows_per_page * HISTORY_MIN_TAIL_PAGE_FILL)
-
-    def prepare(start: int, end: int) -> _HistoryBatch:
-        parts = serialized[start - plan.first : end - plan.first]
-        source = "\n\n".join(text for text, _ in parts if text)
-        slots = "\n\n".join(slot for text, slot in parts if text)
-        rendered = prepare_render_text(source)
-        return _HistoryBatch(
-            end=end,
-            source_text=source,
-            render_text=rendered,
-            slot_text=prepare_render_text(slots),
-            estimated_pages=(
-                tuple(
-                    estimate_text_pages(
-                        rendered,
-                        preset,
-                        min_page_rows=min_page_rows,
-                    ),
-                )
-                if source
-                else ()
-            ),
-            min_page_rows=min_page_rows,
-        )
+    min_batch_rows = ceil(rows_per_page * HISTORY_BATCH_MIN_PAGES)
+    separator = prepare_render_text("\n\n")
+    separator_cells = count_render_cells(separator)
 
     batches = []
-    buffer_start = plan.first
+    source_parts: list[str] = []
+    rendered_parts: list[str] = []
+    slot_parts: list[str] = []
+    buffer_chars = buffer_cells = 0
+    previous_end = plan.first
     used_pages = 0
     for end in plan.ends:
-        batch = prepare(buffer_start, end)
-        pages = batch.estimated_pages
+        pending_start = len(rendered_parts)
+        for text, slot in serialized[
+            previous_end - plan.first : end - plan.first
+        ]:
+            if not text:
+                continue
+            rendered = prepare_render_text(text)
+            if rendered_parts:
+                buffer_chars += len(separator)
+            buffer_chars += len(rendered)
+            source_parts.append(text)
+            rendered_parts.append(rendered)
+            slot_parts.append(slot)
+        previous_end = end
+        if not rendered_parts:
+            continue
+
+        # Large buffers go straight to layout. Smaller buffers accumulate
+        # only new glyph widths; no growing prefix is repeatedly measured.
+        if columns > 1 and buffer_chars < columns * (min_batch_rows - 1) + 1:
+            for index in range(pending_start, len(rendered_parts)):
+                if index:
+                    buffer_cells += separator_cells
+                buffer_cells += count_render_cells(rendered_parts[index])
+            # Glyphs occupy one or two cells, so every wrapped row except
+            # the last uses at least columns - 1 cells. Page reflow can only
+            # remove rows at these widths. This upper bound cannot skip an
+            # eligible batch; the full estimator still decides admission.
+            upper_rows = (buffer_cells + columns - 2) // (columns - 1)
+            if upper_rows < min_batch_rows:
+                continue
+
+        # Serialized messages have non-whitespace role delimiters, so their
+        # normalization is independent across the two-newline separator.
+        rendered = separator.join(rendered_parts)
+        pages = tuple(
+            estimate_text_pages(
+                rendered,
+                preset,
+                min_page_rows=min_page_rows,
+            ),
+        )
         if not pages:
             continue
         rows = sum(
             (page.height - 2 * CANVAS_PADDING) // preset.line_height
             for page in pages
         )
-        if rows < ceil(rows_per_page * HISTORY_BATCH_MIN_PAGES):
+        if rows < min_batch_rows:
             continue
         # Admission uses total content, not average page occupancy. The
         # renderer balances short tails within this batch before it freezes.
         if used_pages + len(pages) > pages_left:
             break
-        batches.append(batch)
+        batches.append(
+            _HistoryBatch(
+                end=end,
+                source_text="\n\n".join(source_parts),
+                render_text=rendered,
+                slot_text=prepare_render_text("\n\n".join(slot_parts)),
+                estimated_pages=pages,
+                min_page_rows=min_page_rows,
+            ),
+        )
         used_pages += len(pages)
-        buffer_start = end
+        source_parts.clear()
+        rendered_parts.clear()
+        slot_parts.clear()
+        buffer_chars = buffer_cells = 0
     return batches
 
 
@@ -255,9 +291,10 @@ def _history_intro() -> str:
 
 
 _HISTORY_OUTRO = (
-    "END EARLIER VISUAL HISTORY. For exact values, use the factsheet when "
-    "available or retrieve source passages with recall_context. "
-    "Continue with the most recent real user request in the native messages."
+    "END EARLIER VISUAL HISTORY. Use the factsheet when available for exact "
+    "values. If earlier details or constraints are unclear, retrieve source "
+    "passages with recall_context. Continue with the latest user request "
+    "in the native messages."
 )
 
 
