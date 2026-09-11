@@ -445,6 +445,11 @@ def prepare_render_text(text: str) -> str:
     return reflow_for_render(text)
 
 
+def count_render_cells(text: str) -> int:
+    """Count displayed cells in a single line from prepare_render_text."""
+    return sum(_char_cells(char) for char in _escape_missing_glyphs(text))
+
+
 def page_count_for_text(
     text: str,
     preset: EffortPreset = LOW_EFFORT_PRESET,
