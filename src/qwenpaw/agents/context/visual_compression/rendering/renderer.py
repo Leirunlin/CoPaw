@@ -75,9 +75,9 @@ def _profile_for_preset(preset: EffortPreset) -> _RenderProfile:
 
 _ASSET_ROOT = Path(__file__).resolve().parent.parent / "assets"
 _DENSE_ATLAS_PROFILES = {
-    "low": (_ASSET_ROOT / "atlas-gray.ts", 5, 8),
-    "medium": (_ASSET_ROOT / "atlas-gray-medium.ts", 4, 7),
-    "high": (_ASSET_ROOT / "atlas-gray-high.ts", 3, 6),
+    "low": (_ASSET_ROOT / "atlas-gray-native.ts", 8, 16),
+    "medium": (_ASSET_ROOT / "atlas-gray-readable.ts", 6, 13),
+    "high": (_ASSET_ROOT / "atlas-gray.ts", 5, 8),
 }
 _INVERT_BYTES = bytes.maketrans(bytes(range(256)), bytes(reversed(range(256))))
 _COVERAGE_TO_ROLE_1 = bytes(

@@ -48,21 +48,21 @@ EFFORT_PRESETS: Mapping[
     {
         "low": EffortPreset(
             effort="low",
-            cell_width=5,
-            line_height=8,
-            readable_chars_per_image=28_080,
+            cell_width=8,
+            line_height=16,
+            readable_chars_per_image=8_775,
         ),
         "medium": EffortPreset(
             effort="medium",
-            cell_width=4,
-            line_height=8,
-            readable_chars_per_image=35_100,
+            cell_width=6,
+            line_height=13,
+            readable_chars_per_image=14_300,
         ),
         "high": EffortPreset(
             effort="high",
-            cell_width=3,
-            line_height=7,
-            readable_chars_per_image=53_040,
+            cell_width=5,
+            line_height=8,
+            readable_chars_per_image=28_080,
         ),
     },
 )
