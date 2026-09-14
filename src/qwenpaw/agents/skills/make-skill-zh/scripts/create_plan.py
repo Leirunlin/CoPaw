@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Normalize and validate a make-skill v2 plan candidate."""
+"""Normalize and persist a make-skill v2 plan candidate."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import secrets
+import shutil
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 SCHEMA = "qwenpaw.make-skill-plan.v2"
+PLAN_ID_PATTERN = re.compile(r"[a-f0-9]{24}")
 ALLOWED_TYPES = (
     "instruction",
     "template",
@@ -343,6 +347,168 @@ def emit(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
 
+def input_error(code: str, path: str, message: str) -> InputError:
+    return InputError([error(code, path, message)])
+
+
+def resolve_workspace(value: Any) -> Path:
+    if not isinstance(value, str) or not value.strip():
+        raise input_error(
+            "required-workspace",
+            "workspace",
+            "Must be a non-empty path string.",
+        )
+    candidate = Path(value).expanduser()
+    if candidate.is_symlink():
+        raise input_error(
+            "workspace-symlink",
+            "workspace",
+            "The workspace must not be a symbolic link.",
+        )
+    try:
+        workspace = candidate.resolve(strict=True)
+    except OSError:
+        raise input_error(
+            "workspace-not-found",
+            "workspace",
+            "Must be an existing directory.",
+        ) from None
+    if not workspace.is_dir():
+        raise input_error(
+            "workspace-not-directory",
+            "workspace",
+            "Must be an existing directory.",
+        )
+    return workspace
+
+
+def private_root(workspace: Path, kind: str, *, create: bool) -> Path:
+    current = workspace
+    for part in (".qwenpaw", "make-skill", kind):
+        current = current / part
+        if current.is_symlink():
+            raise RuntimeError(f"Private path is a symlink: {current}")
+        if current.exists() and not current.is_dir():
+            raise RuntimeError(f"Private path is not a directory: {current}")
+        if create:
+            current.mkdir(mode=0o700, exist_ok=True)
+    return current
+
+
+def allocate_directory(workspace: Path, kind: str) -> Path:
+    base = private_root(workspace, kind, create=True)
+    for _ in range(10):
+        candidate = base / secrets.token_hex(12)
+        try:
+            candidate.mkdir(mode=0o700)
+        except FileExistsError:
+            continue
+        return candidate
+    raise RuntimeError(f"Could not allocate a unique {kind} id.")
+
+
+def write_plan_snapshot(path: Path, plan: dict[str, Any]) -> None:
+    temporary = path.with_name(f".plan-{secrets.token_hex(8)}.tmp")
+    descriptor = os.open(
+        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            json.dump(plan, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def read_plan_snapshot(path: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise input_error(
+            "missing-plan",
+            "plan.json",
+            "The plan snapshot is missing.",
+        )
+    try:
+        raw_plan = json.loads(path.read_text(encoding="utf-8"))
+        plan = normalize_plan(raw_plan)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise input_error("invalid-plan", "plan.json", str(exc)) from None
+    except InputError as exc:
+        raise InputError(
+            [
+                error(
+                    item["code"],
+                    f"plan.{item['path']}" if item["path"] else "plan",
+                    item["message"],
+                )
+                for item in exc.errors
+            ]
+        ) from None
+    if raw_plan != plan:
+        raise input_error(
+            "noncanonical-plan",
+            "plan.json",
+            "The plan snapshot is not canonical SkillPlan v2 JSON.",
+        )
+    return plan
+
+
+def create(workspace: Path, candidate: Any) -> dict[str, Any]:
+    plan = normalize_plan(candidate)
+    plan_root = allocate_directory(workspace, "plans")
+    try:
+        write_plan_snapshot(plan_root / "plan.json", plan)
+    except Exception:
+        shutil.rmtree(plan_root, ignore_errors=True)
+        raise
+    return {
+        "ok": True,
+        "stage": "plan",
+        "plan_id": plan_root.name,
+        "plan": plan,
+        "errors": [],
+        "warnings": [],
+    }
+
+
+def load_plan(workspace: Path, plan_id: Any) -> dict[str, Any]:
+    missing = input_error(
+        "missing-plan",
+        "plan_id",
+        "Plan does not exist. Run create_plan.py and present the returned "
+        "plan for approval before retrying.",
+    )
+    if plan_id is None:
+        raise missing
+    if not isinstance(plan_id, str) or not PLAN_ID_PATTERN.fullmatch(plan_id):
+        raise input_error(
+            "invalid-plan-id",
+            "plan_id",
+            "Must be an id returned by create_plan.py.",
+        )
+    try:
+        plan_root = private_root(workspace, "plans", create=False) / plan_id
+        if plan_root.is_symlink():
+            raise RuntimeError(
+                "The plan directory must not be a symbolic link."
+            )
+    except (OSError, RuntimeError) as exc:
+        raise input_error("unsafe-plan-root", "plan_id", str(exc)) from None
+    if not plan_root.is_dir():
+        raise missing
+    try:
+        return read_plan_snapshot(plan_root / "plan.json")
+    except InputError as exc:
+        if exc.errors[0]["code"] == "missing-plan":
+            raise missing from None
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -351,7 +517,20 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        plan = normalize_plan(load_json_input(args.input))
+        payload = load_json_input(args.input)
+        if not isinstance(payload, dict):
+            raise input_error(
+                "invalid-input", "", "Input must be a JSON object."
+            )
+        unknown = sorted(set(payload) - {"workspace", "plan"})
+        if unknown:
+            raise input_error(
+                "unknown-field",
+                unknown[0],
+                "Not part of the plan creation contract.",
+            )
+        workspace = resolve_workspace(payload.get("workspace"))
+        result = create(workspace, payload.get("plan"))
     except InputError as exc:
         emit(
             {
@@ -362,15 +541,17 @@ def main() -> int:
             },
         )
         return 2
-    emit(
-        {
-            "ok": True,
-            "stage": "plan",
-            "plan": plan,
-            "errors": [],
-            "warnings": [],
-        },
-    )
+    except Exception as exc:
+        emit(
+            {
+                "ok": False,
+                "stage": "plan",
+                "errors": [error("plan-create-failed", "workspace", str(exc))],
+                "warnings": [],
+            }
+        )
+        return 5
+    emit(result)
     return 0
 
 
