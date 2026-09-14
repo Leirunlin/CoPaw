@@ -15,7 +15,7 @@ import yaml
 
 import create_plan
 
-DRAFT_ID_PATTERN = re.compile(r"[a-f0-9]{24}")
+DRAFT_ID_PATTERN = create_plan.ARTIFACT_ID_PATTERN
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
 PLACEHOLDER_PATTERN = re.compile(r"\$\{([^{}]+)\}")
 ARG_PATTERN = re.compile(r"args\.([A-Za-z0-9_.-]+)")

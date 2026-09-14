@@ -10,11 +10,17 @@ import re
 import secrets
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 SCHEMA = "qwenpaw.make-skill-plan.v2"
-PLAN_ID_PATTERN = re.compile(r"[a-f0-9]{24}")
+# Read legacy random IDs as well as Skill-named creation timestamps.
+ARTIFACT_ID_PATTERN = re.compile(
+    r"(?:[a-z0-9]+(?:-[a-z0-9]+)*-"
+    r"(?:[0-9]{8}-[0-9]{4}|[a-f0-9]{12})"
+    r"|[a-f0-9]{24})"
+)
 ALLOWED_TYPES = (
     "instruction",
     "template",
@@ -395,16 +401,19 @@ def private_root(workspace: Path, kind: str, *, create: bool) -> Path:
     return current
 
 
-def allocate_directory(workspace: Path, kind: str) -> Path:
+def allocate_directory(workspace: Path, kind: str, skill_name: str) -> Path:
     base = private_root(workspace, kind, create=True)
-    for _ in range(10):
-        candidate = base / secrets.token_hex(12)
-        try:
-            candidate.mkdir(mode=0o700)
-        except FileExistsError:
-            continue
-        return candidate
-    raise RuntimeError(f"Could not allocate a unique {kind} id.")
+    runs = (
+        private_root(workspace, "runs", create=False)
+        if kind == "drafts"
+        else None
+    )
+    candidate = base / f"{skill_name}-{datetime.now():%Y%m%d-%H%M}"
+    # Published drafts are removed, but their test runs may remain.
+    if runs is not None and os.path.lexists(runs / candidate.name):
+        raise FileExistsError(f"Test runs already exist: {candidate.name}")
+    candidate.mkdir(mode=0o700)
+    return candidate
 
 
 def write_plan_snapshot(path: Path, plan: dict[str, Any]) -> None:
@@ -460,7 +469,7 @@ def read_plan_snapshot(path: Path) -> dict[str, Any]:
 
 def create(workspace: Path, candidate: Any) -> dict[str, Any]:
     plan = normalize_plan(candidate)
-    plan_root = allocate_directory(workspace, "plans")
+    plan_root = allocate_directory(workspace, "plans", plan["name"])
     try:
         write_plan_snapshot(plan_root / "plan.json", plan)
     except Exception:
@@ -485,7 +494,9 @@ def load_plan(workspace: Path, plan_id: Any) -> dict[str, Any]:
     )
     if plan_id is None:
         raise missing
-    if not isinstance(plan_id, str) or not PLAN_ID_PATTERN.fullmatch(plan_id):
+    if not isinstance(plan_id, str) or not ARTIFACT_ID_PATTERN.fullmatch(
+        plan_id
+    ):
         raise input_error(
             "invalid-plan-id",
             "plan_id",

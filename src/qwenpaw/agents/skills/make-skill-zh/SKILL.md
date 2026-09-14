@@ -14,6 +14,8 @@ metadata:
 
 从运行时目录上下文获取 `<workspace>`：使用当前 agent workspace 的绝对路径（未单独配置项目时，也是工作目录）。整个生命周期传入同一个值，与任务的 project directory 和脚本 `cwd` 分开确定。生命周期产物归属 `<workspace>/.qwenpaw/make-skill/`，发布后的 Skill 归属 `<workspace>/skills/`。
 
+plan 和 draft 的 ID 使用 `<skill-name>-YYYYMMDD-HHMM`（服务端本地创建时间），重名时报错，不覆盖。测试 runs 沿用 draft ID。始终使用脚本返回的 ID。
+
 通过 `execute_shell_command` 运行下文每个 `python scripts/...` 命令，并将 `cwd` 设为 available-skills 条目中本 Skill 的 `<dir>`；每个脚本从 stdin（或 `--input <file>`）读取一个 JSON 对象，并向 stdout 写出一个 JSON 对象。
 
 ## 计划

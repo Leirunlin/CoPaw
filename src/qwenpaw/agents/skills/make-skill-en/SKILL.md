@@ -14,6 +14,8 @@ Create one new workspace Skill from the raw current conversation. Use the script
 
 Resolve `<workspace>` from the runtime directory context: use the current agent's absolute workspace path (also the working directory when no separate project is configured). Pass that same value throughout the lifecycle, independently of the task's project directory and the script `cwd`. Lifecycle artifacts belong under `<workspace>/.qwenpaw/make-skill/`; published Skills belong under `<workspace>/skills/`.
 
+Plan and draft IDs use `<skill-name>-YYYYMMDD-HHMM` (server-local creation time); name collisions return an error without overwriting. Test runs reuse the draft ID. Always use the IDs returned by the scripts.
+
 Run each documented `python scripts/...` command through `execute_shell_command`, setting `cwd` to this Skill's `<dir>` from the available-skills entry; every script reads one JSON object from stdin (or `--input <file>`) and writes one JSON object to stdout.
 
 ## Plan

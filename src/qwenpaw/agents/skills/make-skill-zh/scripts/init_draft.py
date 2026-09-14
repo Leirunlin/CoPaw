@@ -14,7 +14,9 @@ import create_plan
 def initialize(workspace: Path, plan_id: Any) -> dict[str, Any]:
     # Resolve the stored plan before creating any draft directories.
     plan = create_plan.load_plan(workspace, plan_id)
-    draft_root = create_plan.allocate_directory(workspace, "drafts")
+    draft_root = create_plan.allocate_directory(
+        workspace, "drafts", plan["name"]
+    )
 
     try:
         skill_dir = draft_root / plan["name"]
