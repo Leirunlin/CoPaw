@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Normalize and persist a make-skill v2 plan candidate."""
+"""Normalize and create or update a make-skill v2 plan."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ SCHEMA = "qwenpaw.make-skill-plan.v2"
 # Read legacy random IDs as well as Skill-named creation timestamps.
 ARTIFACT_ID_PATTERN = re.compile(
     r"(?:[a-z0-9]+(?:-[a-z0-9]+)*-"
-    r"(?:[0-9]{8}-[0-9]{4}|[a-f0-9]{12})"
+    r"(?:[0-9]{8}-[0-9]{4}(?:[0-9]{2})?|[a-f0-9]{12})"
     r"|[a-f0-9]{24})"
 )
 ALLOWED_TYPES = (
@@ -408,7 +408,7 @@ def allocate_directory(workspace: Path, kind: str, skill_name: str) -> Path:
         if kind == "drafts"
         else None
     )
-    candidate = base / f"{skill_name}-{datetime.now():%Y%m%d-%H%M}"
+    candidate = base / f"{skill_name}-{datetime.now():%Y%m%d-%H%M%S}"
     # Published drafts are removed, but their test runs may remain.
     if runs is not None and os.path.lexists(runs / candidate.name):
         raise FileExistsError(f"Test runs already exist: {candidate.name}")
@@ -467,13 +467,22 @@ def read_plan_snapshot(path: Path) -> dict[str, Any]:
     return plan
 
 
-def create(workspace: Path, candidate: Any) -> dict[str, Any]:
+def create(
+    workspace: Path, candidate: Any, plan_id: Any = None
+) -> dict[str, Any]:
+    if plan_id is not None:
+        load_plan(workspace, plan_id)
     plan = normalize_plan(candidate)
-    plan_root = allocate_directory(workspace, "plans", plan["name"])
+    plan_root = (
+        allocate_directory(workspace, "plans", plan["name"])
+        if plan_id is None
+        else private_root(workspace, "plans", create=False) / plan_id
+    )
     try:
         write_plan_snapshot(plan_root / "plan.json", plan)
     except Exception:
-        shutil.rmtree(plan_root, ignore_errors=True)
+        if plan_id is None:
+            shutil.rmtree(plan_root, ignore_errors=True)
         raise
     return {
         "ok": True,
@@ -533,15 +542,15 @@ def main() -> int:
             raise input_error(
                 "invalid-input", "", "Input must be a JSON object."
             )
-        unknown = sorted(set(payload) - {"workspace", "plan"})
+        unknown = sorted(set(payload) - {"workspace", "plan", "plan_id"})
         if unknown:
             raise input_error(
                 "unknown-field",
                 unknown[0],
-                "Not part of the plan creation contract.",
+                "Not part of the plan creation or update contract.",
             )
         workspace = resolve_workspace(payload.get("workspace"))
-        result = create(workspace, payload.get("plan"))
+        result = create(workspace, payload.get("plan"), payload.get("plan_id"))
     except InputError as exc:
         emit(
             {
