@@ -2583,6 +2583,11 @@
     "localModelsNotice": "File sao lưu không bao gồm file mô hình cục bộ. Khi di chuyển sang thiết bị khác, bạn cần tải lại các mô hình đó."
   },
   "skills": {
+    "allChannels": "Tất cả kênh",
+    "allChannelsHint": "“Tất cả kênh” bao gồm các kênh được kết nối trong tương lai.",
+    "selectChannels": "Chọn ít nhất một kênh hoặc tất cả kênh",
+    "channelUnavailable": "Hiện không khả dụng",
+    "channelsLoadFailed": "Không thể tải các kênh.",
     "title": "Kỹ năng",
     "description": "Quản lý kỹ năng và khả năng của agent.",
     "preload": "Tải trước",
