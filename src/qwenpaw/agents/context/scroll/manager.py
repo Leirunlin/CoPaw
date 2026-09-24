@@ -501,7 +501,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await agent.model.count_tokens(**kwargs)
+            tokens = await self._count_model_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -519,7 +519,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await agent.model.count_tokens(**kwargs)
+        tokens = await self._count_model_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -1467,10 +1467,25 @@ class ScrollContextManager:
         self._continuation_summary = updated
         self._summary_update_failed = False
 
+    @staticmethod
+    async def _count_model_input_tokens(agent: Any, kwargs: dict) -> int:
+        """Count the formatter's omission view without altering model input."""
+        get_formatter = getattr(agent, "_get_active_formatter", None)
+        formatter = get_formatter() if callable(get_formatter) else None
+        project = getattr(
+            formatter,
+            "_prepare_messages_for_token_counting",
+            None,
+        )
+        if callable(project):
+            kwargs = {**kwargs, "messages": project(kwargs["messages"])}
+        return await agent.model.count_tokens(**kwargs)
+
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
-        return await agent.model.count_tokens(
-            **(await as_internals.prepare_model_input(agent)),
+        return await self._count_model_input_tokens(
+            agent,
+            await as_internals.prepare_model_input(agent),
         )
 
     @staticmethod
