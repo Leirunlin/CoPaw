@@ -19,6 +19,17 @@ from ...market.registry import market_registry
 router = APIRouter(prefix="/market", tags=["market"])
 
 
+async def _wait_for_market_ready(request: Request) -> None:
+    ready = getattr(request.app.state, "market_ready", None)
+    if ready is not None:
+        await ready.wait()
+    if getattr(request.app.state, "market_startup_failed", False):
+        raise HTTPException(
+            status_code=503,
+            detail="Market initialization failed",
+        )
+
+
 class ProviderInfoSpec(BaseModel):
     key: str
     label: str
@@ -77,9 +88,7 @@ class MarketSearchResponse(BaseModel):
 
 @router.get("/providers", response_model=list[ProviderInfoSpec])
 async def get_market_providers(request: Request) -> list[ProviderInfoSpec]:
-    ready = getattr(request.app.state, "market_ready", None)
-    if ready is not None:
-        await ready.wait()
+    await _wait_for_market_ready(request)
     return [_provider_info_to_spec(p) for p in list_providers()]
 
 
@@ -89,7 +98,11 @@ async def get_market_categories(lang: str = "en") -> list[CategorySpec]:
 
 
 @router.post("/search", response_model=MarketSearchResponse)
-async def market_search(body: MarketSearchRequest) -> MarketSearchResponse:
+async def market_search(
+    body: MarketSearchRequest,
+    request: Request,
+) -> MarketSearchResponse:
+    await _wait_for_market_ready(request)
     providers = market_registry.snapshot()
     unknown = [k for k in body.provider_pages if k not in providers]
     if unknown:
