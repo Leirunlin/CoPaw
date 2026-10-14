@@ -110,10 +110,12 @@ const assistantCodeComponents = { code: AssistantCodeBlock };
 export function AssistantMarkdown({
   content,
   cursor,
+  isStreaming = cursor,
   messageId,
 }: {
   content: string;
   cursor: boolean;
+  isStreaming?: boolean;
   messageId: string;
 }) {
   const deferredContent = useDeferredValue(content);
@@ -146,8 +148,8 @@ export function AssistantMarkdown({
       value={{
         entries,
         // Do not finalize an unfinished block against the previous deferred
-        // source when the last delta and cursor=false arrive together.
-        streaming: cursor || deferredContent !== content,
+        // source when the last delta and completion arrive together.
+        streaming: isStreaming || deferredContent !== content,
         messageId,
         ...scope.current,
       }}
@@ -161,11 +163,6 @@ export function AssistantMarkdown({
           cursor={false}
         />
       </StableCodeBlocks>
-      {cursor && (
-        <span aria-label="Generating" aria-live="off">
-          ▍
-        </span>
-      )}
     </CodeBlockContext.Provider>
   );
 }

@@ -745,13 +745,17 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 
 ### Assistant 代码块与消息提交
 
-`chat.codeBlock(pluginId, language, Component)` 为 Assistant 正文中指定语言的 fenced code block 注册组件。用户消息、思考和工具结果保持默认渲染。组件接收 `source`、`language`、块级 `isStreaming`、当前挂载期间稳定的 `messageId` / `blockId`、来源 `agentId` / `sessionId` 和 `fallback()`。请保持组件类型稳定，避免文本流更新时重置局部状态。同语言最后注册者生效，释放后恢复前一个注册；`chat.disposeAll(pluginId)` 同时清理这些组件。
+`chat.codeBlock(pluginId, language, Component)` 为 Assistant 正文中指定语言的围栏代码块注册组件。用户消息、思考和工具结果沿用默认渲染。同一语言以最后注册的组件为准，释放后恢复前一个注册；`chat.disposeAll(pluginId)` 会清理该插件的注册。
 
-语言按围栏信息串的第一个字段匹配并转为小写，例如 `openui-lang title="Demo"` 匹配 `openui-lang`。宿主保留完整 Markdown 解析，通过消息级 Portal 保持代码块组件挂载；追加文本或补全引用链接不会重置已挂载 UI 的局部状态。`blockId` 按消息内代码块顺序生成，适用于追加式流；不要把它作为跨编辑、刷新或卸载的持久化保证。源码增量和 `isStreaming` 由宿主传递，DSL 校验、未完成结构的显示策略及状态持久化由插件负责。
+组件接收 `source`、`language`、块级 `isStreaming`、当前挂载期间稳定的 `messageId` / `blockId`、来源 `agentId` / `sessionId` 和 `fallback()`。保持组件类型稳定，可让局部状态随流式更新保留。
 
-`await chat.submit(pluginId, { query, agentId, sessionId })` 将普通用户消息加入当前打开的原会话队列，保留输入框草稿与附件，并复用原有请求、流式响应和历史链路。Promise resolve 表示成功入队。Chat 未就绪、会话或 Agent 已切换、队列已满时 reject。宿主比较规范化 Chat 身份，同一 Chat 的 SDK/后端别名可以通用，不同 Chat 共享 runtime session ID 禁止相互提交。
+语言取围栏信息串中第一个空白分隔的字段，并转为小写，例如 `openui-lang title="Demo"` 匹配 `openui-lang`。宿主统一解析 Markdown，通过消息级 Portal 保持代码块组件挂载，追加文本或补全引用链接时保留 UI 的局部状态。`blockId` 按消息内代码块顺序生成，适用于追加式流。
 
-`host.openExternalLink(url)` 提供宿主现有的浏览器及桌面链接打开能力。插件还应根据自身动作范围限制可接受的 URL 协议。
+宿主持续传递累计源码和块级 `isStreaming`。文本内容未提供状态时，采用父消息状态；围栏闭合后，该块即结束流式状态，其余回答可以继续生成。插件负责 DSL 校验、未完成结构的展示及状态持久化。
+
+`await chat.submit(pluginId, { query, agentId, sessionId })` 将普通用户消息加入当前打开的原会话队列，保留输入框草稿与附件，并复用现有请求、流式响应和历史记录。Promise resolve 表示成功入队；Chat 未就绪、会话或 Agent 已切换、队列已满时 reject。会话匹配以规范化 Chat 身份为准：同一 Chat 的 SDK 和后端别名可以通用，共享 runtime session ID 的不同 Chat 仍保持各自的身份。
+
+`host.openExternalLink(url)` 复用宿主在浏览器和桌面端打开链接的能力。插件可根据动作用途选择接受的 URL 协议。
 
 ### 工具调用渲染 — `chat.toolRender`
 

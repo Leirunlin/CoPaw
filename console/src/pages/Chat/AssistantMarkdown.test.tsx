@@ -39,6 +39,91 @@ afterEach(() => {
 });
 
 describe("assistant code block plugins", () => {
+  it.each(["openui-lang", "custom-ui"])(
+    "keeps streamed %s source inside its renderer across token boundaries",
+    (language) => {
+      chatExtensions.addCodeBlock("test", language, () => (
+        <span>Interactive content</span>
+      ));
+      const content = `Before\n\n\`\`\`${language} title="Demo"\nroot = Stack([privateDefinition])\n\`\`\`\n\nAfter`;
+      const view = render(
+        <AssistantMarkdown
+          messageId="source"
+          content=""
+          cursor={false}
+          isStreaming
+        />,
+      );
+      for (let i = 1; i <= content.length; i++) {
+        view.rerender(
+          <AssistantMarkdown
+            messageId="source"
+            content={content.slice(0, i)}
+            cursor={false}
+            isStreaming
+          />,
+        );
+        expect(
+          view.container.querySelector("code")?.textContent?.trim() ?? "",
+        ).toBe("");
+        expect(view.container.textContent).not.toContain("root =");
+      }
+      expect(view.container.textContent).toMatch(
+        /Before[\s\S]*Interactive content[\s\S]*After/,
+      );
+    },
+  );
+
+  it("does not finalize an open fence between native deltas with no text cursor", () => {
+    const seen: ChatCodeBlockProps[] = [];
+    chatExtensions.addCodeBlock("test", "openui-lang", (props) => {
+      seen.push(props);
+      return <span>{props.isStreaming ? "Generating UI" : "Final UI"}</span>;
+    });
+    const content = 'Before\n\n```openui-lang\nroot = TextContent("hello")';
+    const view = render(
+      <AssistantMarkdown
+        messageId="native"
+        content=""
+        cursor={false}
+        isStreaming
+      />,
+    );
+    for (let i = 1; i <= content.length; i++) {
+      view.rerender(
+        <AssistantMarkdown
+          messageId="native"
+          content={content.slice(0, i)}
+          cursor={false}
+          isStreaming
+        />,
+      );
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((props) => props.isStreaming)).toBe(true);
+    expect(screen.queryByText("Final UI")).not.toBeInTheDocument();
+    // A closing fence can finish this block while the message continues.
+    view.rerender(
+      <AssistantMarkdown
+        messageId="native"
+        content={content + "\n```"}
+        cursor={false}
+        isStreaming
+      />,
+    );
+    expect(screen.getByText("Final UI")).toBeInTheDocument();
+    // A response ending without a closing fence must still leave the placeholder.
+    view.rerender(
+      <AssistantMarkdown
+        messageId="native"
+        content={content}
+        cursor={false}
+        isStreaming={false}
+      />,
+    );
+    expect(screen.getByText("Final UI")).toBeInTheDocument();
+  });
+
   it("streams original source and preserves local state as later blocks arrive", () => {
     const seen: ChatCodeBlockProps[] = [];
     function UI(props: ChatCodeBlockProps) {
