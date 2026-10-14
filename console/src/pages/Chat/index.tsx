@@ -40,6 +40,8 @@ import {
   Settings as SettingOutlined,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
+import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
+import { enqueuePluginSubmission } from "./pluginSubmission";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
@@ -2465,6 +2467,33 @@ export default function ChatPage() {
       scheduleNextSend();
     }
   }, [isOwner, queueSessionId, scheduleNextSend, queueKey]);
+
+  // Plugin actions use the same durable queue without consuming composer drafts.
+  useEffect(() => {
+    if (!isChatActivePage) return;
+    const binding = bindChatSubmit((input) => {
+      enqueuePluginSubmission(input, {
+        active: isChatActiveRef.current && !isAgentTransitionRef.current,
+        ready: sdkSessionAdapter.isReady(chatIdRef.current),
+        agentId: selectedAgent,
+        currentSessionId: chatIdRef.current || "",
+        queueKey,
+        resolveIdentity: (id) => sessionApi.getSessionIdentity(id),
+        prepareQuery: (query) =>
+          usesQwenPawBackend ? prepareLoopModeMessage(query) : query,
+        requestContext: captureRequestContext(),
+        queueFullMessage: t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }),
+      });
+    });
+    return () => binding.dispose();
+  }, [
+    isChatActivePage,
+    selectedAgent,
+    queueKey,
+    captureRequestContext,
+    usesQwenPawBackend,
+    t,
+  ]);
 
   // Intercept Enter to enqueue:
   //  - Ctrl/Meta+Enter: always enqueue (even when idle)

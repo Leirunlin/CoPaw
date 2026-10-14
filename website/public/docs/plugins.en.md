@@ -761,6 +761,16 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 });
 ```
 
+### Assistant Code Blocks and Message Submission
+
+`chat.codeBlock(pluginId, language, Component)` registers a component for fenced code blocks with the specified language in assistant message text. User messages, reasoning, and tool results retain their default rendering. The component receives `source`, `language`, block-level `isStreaming`, `messageId` and `blockId` (stable while the message remains mounted), the originating `agentId` and `sessionId`, and `fallback()`. Keep the component type stable to preserve local state as the response streams. The most recently registered component for a language takes precedence; disposing it restores the previous registration. `chat.disposeAll(pluginId)` also removes these registrations.
+
+The host matches languages using the first whitespace-separated field of the fence info string, converted to lowercase. For example, `openui-lang title="Demo"` matches `openui-lang`. Markdown is still parsed as a complete document, while message-level portals keep code-block components mounted. Appending text or resolving reference links does not reset the local state of an existing UI. `blockId` is based on code-block order within the message and supports append-only streaming; it does not guarantee state persistence across edits, reloads, or unmounts. The host passes source updates and `isStreaming` to the plugin. The plugin is responsible for DSL validation, how incomplete structures are displayed, and state persistence.
+
+`await chat.submit(pluginId, { query, agentId, sessionId })` adds a plain user message to the queue for the originating conversation, which must be open. It preserves drafts and attachments in the message input and reuses the existing request, streaming, and history flow. The promise resolves when the message has been added to the queue. It rejects if Chat is not ready, the user has switched conversations or Agents, or the queue is full. The host compares canonical Chat identities: SDK and backend aliases for the same Chat are accepted, but different Chats cannot submit into each other's queues even if they share a runtime session ID.
+
+`host.openExternalLink(url)` uses the host's existing link-opening behavior in browsers and the desktop app. Plugins should also restrict the URL schemes they accept to those appropriate for their actions.
+
 ### Tool-Call Rendering — `chat.toolRender`
 
 ```tsx
