@@ -767,7 +767,7 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 
 The component receives `source`, `language`, block-level `isStreaming`, `messageId` and `blockId` (stable while mounted), the originating `agentId` and `sessionId`, and `fallback()`. Keeping the component type stable preserves local state as the response streams.
 
-The language is the first whitespace-separated field in the fence info string, converted to lowercase. For example, `openui-lang title="Demo"` matches `openui-lang`. The host parses Markdown as a complete document and uses message-level portals to keep code-block components mounted, preserving local UI state as text is appended or reference links resolve. `blockId` follows code-block order within the message and supports append-only streaming.
+The language is the first whitespace-separated field in the fence info string, converted to lowercase. For example, `openui-lang title="Demo"` matches `openui-lang`. The host parses Markdown as a complete document and uses message-level portals to keep code-block components mounted, preserving local UI state as text is appended or reference links resolve. Code blocks are numbered separately within the body and each footnote, keeping `blockId` stable when footnotes move or change display order during append-only streaming.
 
 The host passes cumulative source and block-level `isStreaming` with each update. When text content has no status, it uses the parent message's status. A closing fence marks that block as complete while the rest of the response can continue streaming. The plugin handles DSL validation, the display of incomplete structures, and state persistence.
 

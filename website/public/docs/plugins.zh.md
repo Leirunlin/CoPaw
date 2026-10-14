@@ -749,7 +749,7 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 
 组件接收 `source`、`language`、块级 `isStreaming`、当前挂载期间稳定的 `messageId` / `blockId`、来源 `agentId` / `sessionId` 和 `fallback()`。保持组件类型稳定，可让局部状态随流式更新保留。
 
-语言取围栏信息串中第一个空白分隔的字段，并转为小写，例如 `openui-lang title="Demo"` 匹配 `openui-lang`。宿主统一解析 Markdown，通过消息级 Portal 保持代码块组件挂载，追加文本或补全引用链接时保留 UI 的局部状态。`blockId` 按消息内代码块顺序生成，适用于追加式流。
+语言取围栏信息串中第一个空白分隔的字段，并转为小写，例如 `openui-lang title="Demo"` 匹配 `openui-lang`。宿主统一解析 Markdown，通过消息级 Portal 保持代码块组件挂载，追加文本或补全引用链接时保留 UI 的局部状态。`blockId` 在正文和各条脚注内分别按代码块顺序生成，脚注移动或调整显示顺序时仍保持身份，适用于追加式流。
 
 宿主持续传递累计源码和块级 `isStreaming`。文本内容未提供状态时，采用父消息状态；围栏闭合后，该块即结束流式状态，其余回答可以继续生成。插件负责 DSL 校验、未完成结构的展示及状态持久化。
 

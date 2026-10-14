@@ -274,6 +274,109 @@ describe("assistant code block plugins", () => {
   });
 
   it.each(["openui-lang", "my-ui"])(
+    "keeps a %s footnote form separate when a new body block moves it",
+    (language) => {
+      const submissions: { blockId: string; value: string }[] = [];
+      let mounts = 0;
+      chatExtensions.addCodeBlock("test", language, ({ blockId }) => {
+        const [value, setValue] = useState("");
+        React.useEffect(() => {
+          mounts++;
+        }, []);
+        return (
+          <div>
+            <input
+              aria-label="Name"
+              data-block-id={blockId}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            />
+            <button onClick={() => submissions.push({ blockId, value })}>
+              Submit
+            </button>
+          </div>
+        );
+      });
+      const block = "```" + language + "\nsame source\n```";
+      const content =
+        "Details[^note].\n\n[^note]:\n    " + block.split("\n").join("\n    ");
+      const view = render(
+        <AssistantMarkdown messageId="footnote" content={content} cursor />,
+      );
+      const note = screen.getByRole("textbox");
+      const noteId = note.getAttribute("data-block-id");
+      note.focus();
+      fireEvent.change(note, { target: { value: "edited note" } });
+      const tail = "\n\nNew body form:\n\n" + block;
+      for (let i = 1; i <= tail.length; i++) {
+        view.rerender(
+          <AssistantMarkdown
+            messageId="footnote"
+            content={content + tail.slice(0, i)}
+            cursor
+          />,
+        );
+        expect(view.container.querySelector("[data-footnotes] input")).toBe(
+          note,
+        );
+        expect(note).toHaveValue("edited note");
+        expect(note).toHaveAttribute("data-block-id", noteId);
+        expect(note).toHaveFocus();
+      }
+      const [body, afterNote] = screen.getAllByRole("textbox");
+      expect(afterNote).toBe(note);
+      expect(body).toHaveValue("");
+      expect(body.getAttribute("data-block-id")).not.toBe(noteId);
+      expect(mounts).toBe(2);
+      fireEvent.change(body, { target: { value: "edited body" } });
+      const buttons = screen.getAllByRole("button", { name: "Submit" });
+      fireEvent.click(buttons[0]);
+      fireEvent.click(buttons[1]);
+      expect(submissions).toEqual([
+        { blockId: body.getAttribute("data-block-id"), value: "edited body" },
+        { blockId: noteId, value: "edited note" },
+      ]);
+    },
+  );
+
+  it("keeps multiple blocks in a footnote when an earlier footnote reference resolves", () => {
+    chatExtensions.addCodeBlock("test", "custom-ui", ({ blockId }) => (
+      <input aria-label="Name" data-block-id={blockId} defaultValue="" />
+    ));
+    const block = "```custom-ui\nsame source\n```";
+    const content =
+      "See[^early] and[^late].\n\n[^late]:\n    " +
+      (block + "\n\n" + block).split("\n").join("\n    ");
+    const view = render(
+      <AssistantMarkdown messageId="notes" content={content} cursor />,
+    );
+    const [first, second] = screen.getAllByRole("textbox");
+    fireEvent.change(first, { target: { value: "first note" } });
+    fireEvent.change(second, { target: { value: "second note" } });
+    const ids = [first, second].map((input) =>
+      input.getAttribute("data-block-id"),
+    );
+    view.rerender(
+      <AssistantMarkdown
+        messageId="notes"
+        content={
+          content + "\n\n[^early]:\n    " + block.split("\n").join("\n    ")
+        }
+        cursor={false}
+      />,
+    );
+    const [early, ...late] = screen.getAllByRole("textbox");
+    expect(early).toHaveValue("");
+    expect(late).toEqual([first, second]);
+    expect(first).toHaveValue("first note");
+    expect(second).toHaveValue("second note");
+    expect(late.map((input) => input.getAttribute("data-block-id"))).toEqual(
+      ids,
+    );
+    expect(new Set([early.getAttribute("data-block-id"), ...ids]).size).toBe(3);
+  });
+
+  it.each(["openui-lang", "my-ui"])(
     "matches %s fences with metadata",
     (language) => {
       const seen: ChatCodeBlockProps[] = [];

@@ -21,26 +21,41 @@ import { CodeBlockSlot, StableCodeBlocks } from "./StableCodeBlocks";
 import type { ComponentProps } from "@ant-design/x-markdown";
 
 type MarkdownNode = NonNullable<NonNullable<ComponentProps["domNode"]>["next"]>;
-const blockOrdinals = new WeakMap<MarkdownNode, number>();
+const blockKeys = new WeakMap<MarkdownNode, string>();
 
-/** Code order is independent of Markdown's keys for prose and reference links.
- * Index the vendor's parsed tree once; do not parse or split Markdown again.
+/** Footnotes move after the body and can reorder as references resolve. Index
+ * code blocks within the body or their stable footnote ID, not display order.
+ * Reuse the vendor's parsed tree without parsing or splitting Markdown again.
  */
-function getCodeBlockOrdinal(node: MarkdownNode): number | undefined {
-  if (!blockOrdinals.has(node)) {
+function getCodeBlockKey(node: MarkdownNode): string | undefined {
+  if (!blockKeys.has(node)) {
     let root = node;
     while (root.parent) root = root.parent;
     while (root.prev) root = root.prev;
-    let ordinal = 0;
-    const visit = (current: MarkdownNode) => {
+    const ordinals = new Map<string, number>();
+    const visit = (current: MarkdownNode, scope = "body") => {
+      const section = current.parent?.parent;
+      if (
+        "attribs" in current &&
+        current.name === "li" &&
+        current.attribs.id &&
+        section &&
+        "attribs" in section &&
+        "data-footnotes" in section.attribs
+      ) {
+        scope = current.attribs.id;
+      }
       if (
         "attribs" in current &&
         current.name === "code" &&
         current.attribs["data-block"] === "true"
       ) {
-        blockOrdinals.set(current, ordinal++);
+        const ordinal = ordinals.get(scope) ?? 0;
+        blockKeys.set(current, `${scope}:${ordinal}`);
+        ordinals.set(scope, ordinal + 1);
       }
-      if ("children" in current) current.children.forEach(visit);
+      if ("children" in current)
+        current.children.forEach((child) => visit(child, scope));
     };
     for (
       let current: MarkdownNode | null = root;
@@ -50,7 +65,7 @@ function getCodeBlockOrdinal(node: MarkdownNode): number | undefined {
       visit(current);
     }
   }
-  return blockOrdinals.get(node);
+  return blockKeys.get(node);
 }
 
 interface BlockContext {
@@ -77,9 +92,9 @@ function AssistantCodeBlock(
   const fallback = () => <RenderableCodeBlock {...props} />;
   if (!entry || !ctx || typeof props.children !== "string" || !props.domNode)
     return fallback();
-  const ordinal = getCodeBlockOrdinal(props.domNode);
-  if (ordinal === undefined) return fallback();
-  const blockId = `${ctx.messageId}:code:${ordinal}`;
+  const blockKey = getCodeBlockKey(props.domNode);
+  if (blockKey === undefined) return fallback();
+  const blockId = `${ctx.messageId}:code:${blockKey}`;
   const Component = entry.item.render;
   return (
     <CodeBlockSlot id={blockId}>
