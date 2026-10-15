@@ -1,65 +1,70 @@
 # QwenPaw OpenUI
 
-[中文](README_zh.md)
+English | [中文](README_zh.md)
 
-Interactive controls, forms and charts inside QwenPaw Chat replies. Text, images and UI can alternate in one answer. Adjusting local controls does not call the model; an explicit submit action continues the conversation.
+Interact with QwenPaw's answers directly. OpenUI brings tables, charts, forms, and sliders into Chat, so you can adjust inputs, compare results, and continue the conversation with your choices.
+
+- **Explore as you read**: interfaces appear progressively alongside text and images.
+- **See changes immediately**: connected values and charts update locally as you adjust controls.
+- **Continue the conversation**: submit your choices when you want the assistant to take the next step.
 
 ## Install
 
-Install the built `qwenpaw-openui-0.1.0.zip` package. Node.js and npm are only needed by plugin developers. No additional Python packages or OpenUI API key are required; the plugin uses your existing QwenPaw model configuration.
-
-**Compatibility:** the host must include `chat.codeBlock`, `chat.submit` and `host.openExternalLink` from the companion host API PR. The manifest's `2.2.2b4` floor alone does not guarantee those APIs are present. This development version must be used with that host change; the first public release must set its minimum version to the release that includes the APIs. The frontend checks capabilities before enabling the protocol.
-
-With a compatible QwenPaw service running:
+With QwenPaw running, install the `qwenpaw-openui-0.1.0.zip` package:
 
 ```sh
 qwenpaw plugin install /path/to/qwenpaw-openui-0.1.0.zip
 ```
 
-For offline installation, extract the ZIP and install the contained plugin directory, then start QwenPaw:
+Refresh Chat to start using it. The plugin uses your existing QwenPaw model configuration and includes its frontend runtime. No additional Node.js, npm, Python packages, or OpenUI API key are needed.
+
+QwenPaw must support the `chat.codeBlock`, `chat.submit`, and `host.openExternalLink` plugin APIs.
+
+If QwenPaw is stopped, extract the ZIP with your archive utility, install the contained directory, then start QwenPaw:
 
 ```sh
-python -m zipfile -e /path/to/qwenpaw-openui-0.1.0.zip /path/to/extracted
 qwenpaw plugin install /path/to/extracted/qwenpaw-openui
 ```
 
-Refresh Chat after installation. This plugin appears in chat; it does not create a separate Apps page. Check installation with `qwenpaw plugin info qwenpaw-openui` and remove it with `qwenpaw plugin uninstall qwenpaw-openui`.
+## Get started
 
-## Try it
+Open Chat and describe what you need:
 
-Ask a question where changing a value is useful, for example:
+> I'm having friends over for a barbecue this weekend. Make a shopping list for six people, with quantities I can adjust if the headcount changes.
 
-> We're planning a barbecue for six people, but the headcount may change. Give me a shopping list whose quantities I can adjust when more friends join.
+The assistant chooses a suitable presentation for your request. Its answer might include a headcount slider, a shopping table, and a button to continue planning. The layout and connections between controls depend on what your model generates.
 
-Your model decides whether to include UI. For a reproducible developer example, [examples/seeds.openui](examples/seeds.openui) provides a slider that updates total experiment runs from 35 to 56 when seeds change from 5 to 8. Only its continue button creates another user message.
+Moving sliders, selecting options, and filling in forms happens in the browser. When you click a continue or submit button, the selected information becomes a visible message in the conversation. Refreshing the page restores the interface's initial values.
 
-## Behavior
+## Available components
 
-- Each `openui-lang` fenced block is an independent program with its own state. Ordinary Markdown stays in its original position.
-- UI appears progressively inside an open fence. The official OpenUI parser validates each update; complete constructs are committed while unfinished component arguments keep the previous frame. A closing fence or response completion finalizes the block. Invalid programs show a short error message, never raw source.
-- A single Renderer stays mounted through streaming and completion. Controls follow OpenUI’s streaming readiness rules; host actions are blocked until the block finishes. Write root first, declare state next, then define referenced components in display order for early useful output.
-- A small library extension keys named child components by their OpenUI statement IDs. When an earlier reference resolves, existing controls keep their identity and local state, including the selected tab. Parsing, component schemas and state management stay with the official runtime.
-- Local values survive later text deltas while the block stays mounted. Refreshing or remounting restores the defaults from the saved source. Local changes are not written to workspace files.
-- `@ToAssistant` submits its message, explicit context and the submitting form's values as a visible user message. Other local state is not automatically sent. Submissions use the existing queue and preserve composer drafts and attachments.
-- `@OpenUrl` allows absolute HTTP(S) links. `@Set` and `@Reset` run locally. Query, Mutation, tool providers, arbitrary JavaScript and patches to previous replies are not enabled.
-- The protocol is added only to capable Console requests using the native QwenPaw backend. Other channels, external harnesses and automation do not receive it through this plugin.
-- Disabling the plugin restores ordinary code rendering for saved UI fences. To show an inert DSL example while enabled, wrap it in an outer four-backtick `text` fence.
+The plugin includes the official OpenUI catalog of 82 components and subcomponents:
 
-## Troubleshooting
-
-| Symptom | What to check |
+| Category | Examples |
 | --- | --- |
-| Plugin reports missing host APIs | Install a host build containing the companion API change, then refresh Console. |
-| The answer contains only text | UI is optional. Use a task that benefits from interaction and check that the frontend plugin loaded. |
-| Source appears instead of a UI | Check that the plugin loaded and the fence language is `openui-lang`. Active UI source is never shown by this plugin. |
-| An interface error appears | Ask the assistant to regenerate the interface. Invalid source remains in message history for debugging. |
-| A submit action is rejected | Open the original Agent and conversation, wait for Chat to become ready, or make room in the message queue. |
-| Local values reset after refresh | Expected: only UI source and explicitly submitted messages are persisted. |
-| Local ZIP installation fails while stopped | Extract the archive and install the extracted plugin directory as shown above. |
+| Tables | Data tables, editable tables |
+| Charts | Bar, line, area, pie, radar, and scatter charts |
+| Forms | Text inputs, dropdowns, date pickers, sliders, checkboxes, radio buttons, switches |
+| Layout | Cards, tabs, accordions, steps, carousels, modals |
+| Content | Markdown, images, galleries, code, callouts, lists, and metrics |
+
+The model describes components in `openui-lang`; the official OpenUI runtime parses them and handles interaction. Each UI block has its own state and can appear between passages of ordinary text in the same reply.
+
+## Common questions
+
+**Getting a text-only answer?** The assistant decides when an interface is useful. Describe the values you would like to adjust or the options you want to choose from.
+
+**Interface not appearing?** Check that the plugin is enabled and refresh Chat. A missing-API message means your QwenPaw build needs the APIs listed above. If the generated interface fails to load, ask the assistant to regenerate it.
+
+**How do I uninstall it?** Run the following command, then refresh Chat. UI blocks in previous replies will appear as ordinary code.
+
+```sh
+qwenpaw plugin uninstall qwenpaw-openui
+```
 
 ## Development
 
-Use Python 3.11+ from the QwenPaw development environment and Node `^20.19.0`, `^22.13.0` or `>=24.0.0`. From the QwenPaw repository root:
+Use QwenPaw's Python 3.11+ development environment and Node `^20.19.0`, `^22.13.0`, or `>=24.0.0`. From the repository root:
 
 ```sh
 npm --prefix plugins/bundle/qwenpaw-openui/frontend ci
@@ -68,12 +73,16 @@ python -m pytest tests/unit/plugins/test_openui.py -q
 python scripts/pack/generate_plugin_metadata.py --only qwenpaw-openui
 ```
 
-The resulting package is `dist/plugins/bundle/qwenpaw-openui/qwenpaw-openui-0.1.0.zip`. Install that archive or its extracted contents. Installing the source directory after `npm ci` copies development files, because `pack_exclude` applies to ZIP packaging rather than directory installation.
+The package is written to `dist/plugins/bundle/qwenpaw-openui/qwenpaw-openui-0.1.0.zip`. Use this ZIP or its extracted contents for local installation too; frontend source and development dependencies are excluded from the package.
 
-The build emits `dist/index.js` and `dist/system-prompt.txt` from the same pinned OpenUI library. The module shares host React/ReactDOM, embeds scoped CSS and has no unresolved imports. The full catalog costs roughly 3.7 MB of uncompressed JavaScript and 35,000 prompt characters; the package is loaded only for installed frontend plugins.
+[examples/seeds.openui](examples/seeds.openui) provides a reproducible interaction example: moving the slider from 5 to 8 updates total experiment runs from 35 to 56, and the continue button submits the current value.
 
-`frontend/src/qwenpaw-host.d.ts` is a public SDK snapshot, following the host plugin convention. When the host exposes these APIs, the build checks that it matches `console/src/plugins/types/qwenpaw.d.ts`. Refresh the snapshot when adopting an SDK change. Standalone plugin builds do not require the host source tree.
+### Integration
 
-Python dependencies supplied by QwenPaw are not repeated in a requirements file. Add `requirements.txt` only when introducing extra Python packages. npm dependencies belong in the frontend package and lockfile.
+The frontend registers an `openui-lang` renderer and adds a capability marker to chat requests. Backend middleware adds language and component instructions generated from the official library to eligible Console requests.
 
-Before public release, merge the host API PR and set the minimum host version to its actual release. This plugin currently follows the repository's bundle release pipeline. A separate plugin repository or version-driven release can be introduced later without changing the runtime contract.
+Streaming updates use the official parser to display complete constructs progressively. The renderer stays mounted, and named child components retain their identity as later content arrives, preserving existing inputs and selections.
+
+`@Set` and `@Reset` update local state. `@ToAssistant` uses QwenPaw's message queue to submit its message, explicit context, and form values. `@OpenUrl` opens HTTP(S) links through the host. Query, Mutation, tool providers, and patches to historical UI are not integrated.
+
+The build produces `dist/index.js` and `dist/system-prompt.txt`. The frontend shares host React/ReactDOM and scopes styles to the plugin interface. `frontend/src/qwenpaw-host.d.ts` holds a public SDK type snapshot; update it when adopting host API changes.
