@@ -310,16 +310,9 @@ def build_plugin_catalog() -> dict[str, Any]:
         else get_builtin_hub_plugins_dir().glob("*/plugin.json")
     )
     for path in sorted(manifests):
-        data = json.loads(path.read_text(encoding="utf-8"))
-        manifest = PluginManifest.from_dict(data)
-        if data.get("publish") is False:
-            # Host-bundled adapters must use the matching local code, even
-            # while an older CDN index still advertises standalone releases.
-            plugins = {
-                key: entry
-                for key, entry in plugins.items()
-                if key[0] != manifest.id
-            }
+        manifest = PluginManifest.from_dict(
+            json.loads(path.read_text(encoding="utf-8")),
+        )
         compatible, _ = check_plugin_version_compat(manifest)
         if not compatible:
             continue

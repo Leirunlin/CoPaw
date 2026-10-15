@@ -144,7 +144,7 @@ def test_bundled_hubs_remain_installable_when_cdn_is_unavailable() -> None:
         assert (Path(entry["install_url"]) / "plugin.json").is_file()
 
 
-def test_host_bundled_hubs_replace_all_stale_cdn_versions(
+def test_bundled_hubs_replace_same_cdn_version_and_keep_remote_updates(
     tmp_path,
     monkeypatch,
 ):
@@ -196,8 +196,12 @@ def test_host_bundled_hubs_replace_all_stale_cdn_versions(
         for entry in result["plugins"]
         if entry["plugin_id"] == "qwenpaw-hub"
     }
-    assert set(qwenpaw) == {"1.0.0"}
+    assert set(qwenpaw) == set(versions)
     assert (Path(qwenpaw["1.0.0"]["install_url"]) / "plugin.json").is_file()
+    assert qwenpaw["1.1.0"]["install_url"].endswith(
+        "/plugins/qwenpaw-hub-1.1.0.zip",
+    )
+    assert qwenpaw["1.1.0"]["upgrade_available"] is True
     tool_entry = next(
         entry
         for entry in result["plugins"]
