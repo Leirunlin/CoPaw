@@ -14,7 +14,7 @@
   },
   "dependencies": [],
   "qwenpaw_version": {
-    "min": "2.2.2b4"
+    "min": "2.2.3"
   },
   "pack_requires": ["dist/system-prompt.txt"],
   "pack_exclude": ["frontend"],
