@@ -99,6 +99,7 @@ def _pick_en(value: Any) -> str:
 def _installed_plugin_ids() -> dict[str, str]:
     """Return ``{plugin_id: installed_version}`` from disk manifests."""
     from ..config.utils import get_plugins_dir
+    from .loader import _is_disabled_plugin_dir
 
     plugins_dir = get_plugins_dir()
     if not plugins_dir.is_dir():
@@ -106,7 +107,7 @@ def _installed_plugin_ids() -> dict[str, str]:
 
     installed: dict[str, str] = {}
     for item in plugins_dir.iterdir():
-        if not item.is_dir():
+        if not item.is_dir() or _is_disabled_plugin_dir(item):
             continue
         manifest_path = item / "plugin.json"
         if not manifest_path.is_file():
@@ -309,9 +310,16 @@ def build_plugin_catalog() -> dict[str, Any]:
         else get_builtin_hub_plugins_dir().glob("*/plugin.json")
     )
     for path in sorted(manifests):
-        manifest = PluginManifest.from_dict(
-            json.loads(path.read_text(encoding="utf-8")),
-        )
+        data = json.loads(path.read_text(encoding="utf-8"))
+        manifest = PluginManifest.from_dict(data)
+        if data.get("publish") is False:
+            # Host-bundled adapters must use the matching local code, even
+            # while an older CDN index still advertises standalone releases.
+            plugins = {
+                key: entry
+                for key, entry in plugins.items()
+                if key[0] != manifest.id
+            }
         compatible, _ = check_plugin_version_compat(manifest)
         if not compatible:
             continue
