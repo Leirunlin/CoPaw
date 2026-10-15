@@ -715,22 +715,23 @@ async def uninstall_plugin_source(
             )
             if installed is None:
                 raise KeyError(f"Plugin '{plugin_id}' is not loaded.")
-            manifest, source_path = installed
-            meta = manifest.meta or {}
+            _, source_path = installed
             await asyncio.to_thread(shutil.rmtree, source_path)
-        else:
-            meta = record.manifest.meta or {}
-            provider_ids, command_names = _collect_plugin_runtime_ids(
-                loader.registry,
-                plugin_id,
-            )
-            await loader.unload_plugin(plugin_id, delete_files=True)
-            _post_unload_cleanup(
-                request,
-                plugin_id,
-                provider_ids,
-                command_names,
-            )
+            # A failed plugin's manifest cannot establish tool ownership.
+            # Preserve agent configs, including those from earlier runs.
+            return
+        meta = record.manifest.meta or {}
+        provider_ids, command_names = _collect_plugin_runtime_ids(
+            loader.registry,
+            plugin_id,
+        )
+        await loader.unload_plugin(plugin_id, delete_files=True)
+        _post_unload_cleanup(
+            request,
+            plugin_id,
+            provider_ids,
+            command_names,
+        )
         await asyncio.to_thread(
             _remove_plugin_tools_from_agents,
             plugin_id,
