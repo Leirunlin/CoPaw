@@ -1,3 +1,4 @@
+import "./runtime";
 import { OpenUIBlock } from "./OpenUIBlock";
 import { getHost, PLUGIN_ID } from "./host";
 

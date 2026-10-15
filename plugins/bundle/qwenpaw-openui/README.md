@@ -8,6 +8,8 @@ Interact with QwenPaw's answers directly. OpenUI brings tables, charts, forms, a
 - **See changes immediately**: connected values and charts update locally as you adjust controls.
 - **Continue the conversation**: submit your choices when you want the assistant to take the next step.
 
+Components follow QwenPaw's light or dark theme, accent color, and font-size setting, including dropdowns and dialogs.
+
 ## Install
 
 With QwenPaw running, install the `qwenpaw-openui-0.1.0.zip` package:
@@ -86,3 +88,7 @@ Streaming updates use the official parser to display complete constructs progres
 `@Set` and `@Reset` update local state. `@ToAssistant` uses QwenPaw's message queue to submit its message, explicit context, and form values. `@OpenUrl` opens HTTP(S) links through the host. Query, Mutation, tool providers, and patches to historical UI are not integrated.
 
 The build produces `dist/index.js` and `dist/system-prompt.txt`. The frontend shares host React/ReactDOM and scopes styles to the plugin interface. `frontend/src/qwenpaw-host.d.ts` holds a public SDK type snapshot; update it when adopting host API changes.
+
+The official `ThemeProvider` maps OpenUI's visual tokens to QwenPaw's `--app-*` tokens. Font changes update chart measurements while preserving component state. OpenUI retains its component layouts and chart series palettes.
+
+The runtime interprets `openui-lang` through registered components, built-in functions, and host actions. Release-bundle tests cover script attempts, unsafe links, unsupported tool calls, and normal local interactions.

@@ -60,7 +60,15 @@ beforeAll(async () => {
     },
   });
   // This file is the actual release artifact: no source aliases or second React.
-  await import("../../dist/index.js");
+  const dynamicCode = vi.spyOn(globalThis, "Function");
+  try {
+    await import("../../dist/index.js");
+    // Zod otherwise catches a blocked Function probe before falling back.
+    // Verify that even this probe is avoided during schema initialization.
+    expect(dynamicCode).not.toHaveBeenCalled();
+  } finally {
+    dynamicCode.mockRestore();
+  }
 });
 
 it("loads the shipped module with host React and registers rendering plus a merging capability transform", () => {
@@ -135,20 +143,63 @@ it("loads the shipped module with host React and registers rendering plus a merg
   expect(manifest.name).toBe("QwenPaw OpenUI");
 });
 
-function renderProgram(source: string) {
+function renderProgram(source: string, isStreaming = false) {
   return render(
     <Component
       source={source}
       language="openui-lang"
       messageId="m"
       blockId="m:0"
-      isStreaming={false}
+      isStreaming={isStreaming}
       agentId="a"
       sessionId="s"
       fallback={() => <pre data-testid="fallback">fallback</pre>}
     />,
   );
 }
+
+it("keeps syntax highlighting and copy behavior in standalone and Markdown code", async () => {
+  const code = 'const message = "Hello";\nwindow.__openuiExecuted = true;';
+  const markdown = `\`\`\`javascript\n${code}\n\`\`\``;
+  const writeText = vi.fn(async () => {});
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+  Object.assign(window, { __openuiExecuted: false });
+  try {
+    const view = renderProgram(`root = Stack([
+      CodeBlock("javascript", ${JSON.stringify(code)}),
+      TextContent(${JSON.stringify(markdown)}),
+      MarkDownRenderer(${JSON.stringify(markdown)})
+    ])`);
+    const blocks = view.container.querySelectorAll(
+      ".openui-code-block-syntax-highlighter",
+    );
+    expect(blocks).toHaveLength(3);
+    for (const block of blocks) {
+      expect(block.textContent).toBe(code);
+      expect(block.querySelector(".token.keyword")?.textContent).toBe("const");
+      expect(block.querySelector(".token.string")?.textContent).toBe('"Hello"');
+      // Semantic classes allow one palette to follow host theme changes.
+      expect(
+        block.querySelector(".token.keyword")?.getAttribute("style"),
+      ).toBeNull();
+    }
+    for (const button of screen.getAllByRole("button", { name: "Copy code" })) {
+      fireEvent.click(button);
+    }
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(3));
+    expect(writeText.mock.calls.every(([value]) => value === code)).toBe(true);
+    expect(
+      (window as unknown as { __openuiExecuted: boolean }).__openuiExecuted,
+    ).toBe(false);
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
 
 it.each([
   '@OpenUrl("https://example.com/"), @ToAssistant("Continue")',
@@ -209,6 +260,146 @@ it("retains every submission in one Action and stays pending until all settle", 
   expect(screen.getByRole("status")).toBeTruthy();
   await act(async () => second());
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+// Exercise the release artifact, including the upstream parser and renderer.
+// Testing prompt wording alone cannot establish these execution boundaries.
+const maliciousPrograms = [
+  "<script>window.__openuiExecuted = true</script>",
+  "root = TextContent(window.location.href)",
+  'root = TextContent(@Function("window.__openuiExecuted = true")())',
+  'root = TextContent(@eval("window.__openuiExecuted = true"))',
+  'root = TextContent(data.constructor.constructor("return window")())\ndata = {}',
+  'root = Html("<img src=x onerror=alert(1)>")',
+  'root = Button("Run", @Eval("alert(1)"))',
+  'root = TextContent(result)\nresult = Query("fetch", {url: "https://example.com/"})',
+  'root = TextContent(result)\nresult = Mutation("fetch", {url: "https://example.com/"})',
+];
+
+it.each(maliciousPrograms)(
+  "never executes a program during streaming or replay: %s",
+  async (source) => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    Object.assign(window, { __openuiExecuted: false });
+    try {
+      const view = renderProgram("", true);
+      for (let i = 1; i <= source.length; i++) {
+        view.rerender(
+          <Component
+            source={source.slice(0, i)}
+            language="openui-lang"
+            messageId="m"
+            blockId="m:0"
+            agentId="a"
+            sessionId="s"
+            isStreaming
+            fallback={() => null}
+          />,
+        );
+      }
+      view.unmount();
+      renderProgram(source);
+      expect(await screen.findByRole("alert")).toBeTruthy();
+      expect(
+        document.querySelector("script, iframe, [onerror], [onclick]"),
+      ).toBeNull();
+      expect(
+        (window as unknown as { __openuiExecuted: boolean }).__openuiExecuted,
+      ).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+      expect(submit).not.toHaveBeenCalled();
+      expect(openExternalLink).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+      open.mockRestore();
+    }
+  },
+);
+
+it.each(["TextContent", "MarkDownRenderer"])(
+  "keeps HTML and event handlers inert inside %s",
+  (component) => {
+    const markup =
+      '<img src="x" onerror="window.__openuiExecuted=true"><script>window.__openuiExecuted=true</script>';
+    renderProgram(`root = ${component}(${JSON.stringify(markup)})`);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.querySelector("script, img, iframe, [onerror]")).toBeNull();
+  },
+);
+
+const unsafeUrls = [
+  "javascript:alert(1)",
+  "JaVaScRiPt:alert(1)",
+  "java\tscript:alert(1)",
+  "\n javascript:alert(1)",
+  "data:text/html,<script>alert(1)</script>",
+  "vbscript:msgbox(1)",
+  "file:///tmp/example.html",
+];
+
+it.each(unsafeUrls)("rejects an unsafe OpenUrl action: %j", async (url) => {
+  renderProgram(`root = Button("Open", @OpenUrl(${JSON.stringify(url)}))`);
+  fireEvent.click(screen.getByRole("button", { name: "Open" }));
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(openExternalLink).not.toHaveBeenCalled();
+  expect(submit).not.toHaveBeenCalled();
+});
+
+it.each(unsafeUrls)("keeps unsafe component links inert: %j", (url) => {
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
+  try {
+    const view = renderProgram(
+      `root = EditableTable("links", [{type: "url", key: "url", header: "Link"}], [{id: "1", values: [${JSON.stringify(
+        url,
+      )}]}])`,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      view.container.querySelector(".openui-editable-table-display-url")
+        ?.textContent,
+    ).toBe(url);
+    for (const link of view.container.querySelectorAll("a")) {
+      expect(link.getAttribute("href")).toBeFalsy();
+      fireEvent.click(link);
+    }
+    expect(open).not.toHaveBeenCalled();
+  } finally {
+    open.mockRestore();
+  }
+});
+
+it.each([
+  "javascript:alert",
+  "data:text/html,unsafe",
+  "vbscript:alert",
+  "file:///tmp/test",
+  "java&#x09;script:alert",
+])("strips unsafe Markdown destinations: %s", (url) => {
+  const text = `[Unsafe](${url})`;
+  renderProgram(`root = MarkDownRenderer(${JSON.stringify(text)})`);
+  expect(screen.queryByRole("alert")).toBeNull();
+  const link = screen.getByText("Unsafe");
+  expect(link.tagName).toBe("A");
+  expect(link.getAttribute("href")).toBeFalsy();
+});
+
+it("still evaluates official local functions and submits their results", async () => {
+  renderProgram(
+    'root = Stack([TextContent("Total: " + @Sum([1, 2, 3])), Button("Continue", @ToAssistant("Total: " + @Sum([1, 2, 3])))])',
+  );
+  expect(screen.getByText("Total: 6")).toBeTruthy();
+  expect(submit).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await waitFor(() =>
+    expect(submit).toHaveBeenCalledExactlyOnceWith("qwenpaw-openui", {
+      agentId: "a",
+      sessionId: "s",
+      query: "Total: 6",
+    }),
+  );
+  expect(openExternalLink).not.toHaveBeenCalled();
 });
 
 it("renders and submits the Form argument order advertised in the generated prompt", async () => {

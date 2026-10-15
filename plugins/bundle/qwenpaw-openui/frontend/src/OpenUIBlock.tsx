@@ -17,11 +17,13 @@ import { dispatchAction } from "./actions";
 import { useOpenUIStyles } from "./styles";
 import { createUIStream } from "./streaming";
 import { streamingLibrary } from "./library";
+import { useOpenUITheme } from "./theme";
 
 export function OpenUIBlock(props: ChatCodeBlockProps) {
   const { source, isStreaming, agentId, sessionId } = props;
   const api = getHost();
   const theme = api.host.useTheme();
+  const themes = useOpenUITheme();
   const locale = api.host.useLocale();
   const zh = locale.startsWith("zh");
   const [failure, setFailure] = useState<{ source: string; message: string }>();
@@ -80,7 +82,7 @@ export function OpenUIBlock(props: ChatCodeBlockProps) {
       data-openui-block={props.blockId}
       aria-busy={isStreaming || pending}
     >
-      <ThemeProvider mode={theme} cssSelector=".qwenpaw-openui">
+      <ThemeProvider mode={theme} {...themes} cssSelector=".qwenpaw-openui">
         <fieldset
           hidden={!!error}
           disabled={pending}

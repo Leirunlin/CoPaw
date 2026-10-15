@@ -8,6 +8,8 @@
 - **即时查看结果**：调整控件后，有关联的数值和图表在本地更新。
 - **继续对话**：点击提交按钮，把当前选择交给助手进一步分析。
 
+组件跟随 QwenPaw 的深浅主题、强调色和字号设置，下拉菜单和弹窗也保持一致。
+
 ## 安装
 
 准备好 `qwenpaw-openui-0.1.0.zip`，启动 QwenPaw，然后执行：
@@ -86,3 +88,7 @@ python scripts/pack/generate_plugin_metadata.py --only qwenpaw-openui
 `@Set` 和 `@Reset` 更新本地状态；`@ToAssistant` 通过 QwenPaw 消息队列提交动作文字、显式 context 和表单值；`@OpenUrl` 通过宿主打开 HTTP(S) 链接。Query、Mutation、工具 provider 和历史 UI patch 尚未接入。
 
 构建产物包括 `dist/index.js` 和 `dist/system-prompt.txt`。前端复用宿主 React/ReactDOM，样式限定在插件界面内。`frontend/src/qwenpaw-host.d.ts` 保存公开 SDK 类型快照，升级宿主接口时同步更新。
+
+官方 `ThemeProvider` 将 OpenUI 的视觉样式映射到 QwenPaw 的 `--app-*` 变量。字号变化会更新图表文字的测量结果，同时保留组件状态。组件布局和图表系列配色沿用 OpenUI。
+
+运行时通过已注册的组件、内置函数和宿主动作解释 `openui-lang`。测试直接加载发布产物，覆盖脚本执行尝试、危险链接、未接入的工具调用，以及正常的本地交互。

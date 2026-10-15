@@ -1,13 +1,11 @@
 import { build } from "esbuild";
 import postcss from "postcss";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import React from "react";
 import ReactDOM from "react-dom";
 import { openuiLibrary, openuiPromptOptions } from "@openuidev/react-ui";
 
-const require = createRequire(import.meta.url);
 const outDir = new URL("../../dist/", import.meta.url);
 await mkdir(outDir, { recursive: true });
 
@@ -109,7 +107,7 @@ try {
 await writeFile(new URL("system-prompt.txt", outDir), prompt);
 
 const css = await build({
-  entryPoints: [require.resolve("@openuidev/react-ui/components.css")],
+  entryPoints: ["src/components.css"],
   bundle: true,
   write: false,
   minify: true,
@@ -156,6 +154,15 @@ const result = await build({
     {
       name: "qwenpaw-host",
       setup(builder) {
+        // OpenUI uses Prism's inline palette. Its public CSS mode retains
+        // token classes so one scoped theme covers standalone and nested code.
+        builder.onResolve(
+          { filter: /^react-syntax-highlighter$/ },
+          ({ namespace }) =>
+            namespace === "qwenpaw"
+              ? undefined
+              : { path: "syntax-highlighter", namespace: "qwenpaw" },
+        );
         builder.onResolve(
           { filter: /^(react|react-dom|openui:styles)$/ },
           ({ path }) => ({ path, namespace: "qwenpaw" }),
@@ -163,6 +170,16 @@ const result = await build({
         builder.onLoad({ filter: /.*/, namespace: "qwenpaw" }, ({ path }) => {
           if (path === "openui:styles")
             return { contents: `export default ${JSON.stringify(styles)}` };
+          if (path === "syntax-highlighter")
+            return {
+              contents: `import { createElement } from "react";
+                import { Prism as BasePrism } from "react-syntax-highlighter";
+                export const Prism = (props) => createElement(BasePrism, {
+                  ...props, useInlineStyles: false,
+                  codeTagProps: props.codeTagProps ?? { className: props.language && "language-" + props.language }
+                });`,
+              resolveDir: fileURLToPath(new URL("../", import.meta.url)),
+            };
           const name = path === "react" ? "React" : "ReactDOM";
           const exports = Object.keys(
             path === "react" ? React : ReactDOM,
