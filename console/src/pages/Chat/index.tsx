@@ -2483,6 +2483,7 @@ export default function ChatPage() {
           usesQwenPawBackend ? prepareLoopModeMessage(query) : query,
         requestContext: captureRequestContext(),
         queueFullMessage: t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }),
+        staleMessage: t("chat.pluginSubmission.staleConversation"),
       });
     });
     return () => binding.dispose();
@@ -2490,6 +2491,7 @@ export default function ChatPage() {
     isChatActivePage,
     selectedAgent,
     queueKey,
+    sdkSessionAdapter,
     captureRequestContext,
     usesQwenPawBackend,
     t,

@@ -763,17 +763,15 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 
 ### Assistant Code Blocks and Message Submission
 
-`chat.codeBlock(pluginId, language, Component)` registers a component for fenced code blocks in the specified language within assistant message text. User messages, reasoning, and tool results use their default renderers. The latest registration for a language takes precedence; disposing it restores the previous one. `chat.disposeAll(pluginId)` clears the plugin's registrations.
+`chat.codeBlock(pluginId, language, Component)` lets you display code blocks in assistant replies as interactive components. For example, registering `openui-lang` sends code blocks marked with that language to your component for rendering.
 
-The component receives `source`, `language`, block-level `isStreaming`, `messageId` and `blockId` (stable while mounted), the originating `agentId` and `sessionId`, and `fallback()`. Keeping the component type stable preserves local state as the response streams.
+The component receives the current source in `source` and uses `isStreaming` to check whether the code block is still being generated. The host preserves local component state during streaming updates; use a stable component type and handle incomplete content in your component. Other props include `language`, `messageId`, `blockId`, `agentId`, `sessionId`, and `fallback()`, which displays the default code view.
 
-The language is the first whitespace-separated field in the fence info string, converted to lowercase. For example, `openui-lang title="Demo"` matches `openui-lang`. The host parses Markdown as a complete document and uses message-level portals to keep code-block components mounted, preserving local UI state as text is appended or reference links resolve. Code blocks are numbered separately within the body and each footnote, keeping `blockId` stable when footnotes move or change display order during append-only streaming.
+The latest registration for a language takes precedence. Calling the returned `dispose()` restores the previous registration. Use `chat.disposeAll(pluginId)` to remove all chat extensions registered by the plugin.
 
-The host passes cumulative source and block-level `isStreaming` with each update. When text content has no status, it uses the parent message's status. A closing fence marks that block as complete while the rest of the response can continue streaming. The plugin handles DSL validation, the display of incomplete structures, and state persistence.
+`await chat.submit(pluginId, { query, agentId, sessionId })` submits the user's choices as a new message. Pass the `agentId` and `sessionId` received by your component. The message joins the originating conversation's send queue, preserving drafts and attachments in the composer. The promise resolves when the message is queued and rejects if Chat is not ready, the user has switched conversations or Agents, or the queue is full.
 
-`await chat.submit(pluginId, { query, agentId, sessionId })` adds a plain user message to the queue for the currently open originating conversation. It preserves drafts and attachments in the composer and reuses the existing request, streaming, and message history flow. The promise resolves on successful queue admission and rejects when Chat is not ready, the conversation or Agent has changed, or the queue is full. Conversation matching uses canonical Chat identity: SDK and backend aliases for the same Chat are interchangeable, while Chats that share a runtime session ID retain separate identities.
-
-`host.openExternalLink(url)` uses the host's link-opening behavior in browsers and the desktop app. Plugins can choose which URL schemes to accept based on the action's purpose.
+`host.openExternalLink(url)` opens an external link in the browser or desktop app.
 
 ### Tool-Call Rendering — `chat.toolRender`
 

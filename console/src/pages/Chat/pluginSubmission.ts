@@ -16,6 +16,7 @@ interface AdmissionContext {
   prepareQuery: (query: string) => string;
   requestContext: Record<string, unknown>;
   queueFullMessage: string;
+  staleMessage: string;
 }
 
 /** Synchronous admission captures routing before any queue worker awaits. */
@@ -34,9 +35,7 @@ export function enqueuePluginSubmission(
     (requested.chatId || requested.sdkSessionId) !==
       (identity.chatId || identity.sdkSessionId)
   ) {
-    throw new Error(
-      "Open the original conversation before submitting this action.",
-    );
+    throw new Error(context.staleMessage);
   }
   const store = useMessageQueueStore.getState();
   if (store.getQueue(context.queueKey).length >= MAX_QUEUE_SIZE) {

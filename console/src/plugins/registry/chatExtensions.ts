@@ -284,6 +284,7 @@ class ChatExtensionsRegistry {
     language: string,
     render: ChatCodeBlockItem["render"],
   ): Disposable {
+    language = language.trim().toLowerCase();
     return this.addToList("response.codeBlocks", pluginId, {
       id: `${pluginId}:${language}`,
       language,

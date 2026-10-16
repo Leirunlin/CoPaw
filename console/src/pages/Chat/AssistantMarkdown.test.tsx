@@ -39,6 +39,28 @@ afterEach(() => {
 });
 
 describe("assistant code block plugins", () => {
+  it("normalizes registration and fence languages and restores an earlier renderer", () => {
+    chatExtensions.addCodeBlock("test", " My-UI ", ({ language }) => (
+      <span>first renderer: {language}</span>
+    ));
+    const latest = chatExtensions.addCodeBlock("test", "my-ui", () => (
+      <span>latest renderer</span>
+    ));
+    const view = render(
+      <AssistantMarkdown
+        messageId="case"
+        content={'```MY-UI title="Example"\nsource\n```'}
+        cursor={false}
+      />,
+    );
+    expect(screen.getByText("latest renderer")).toBeInTheDocument();
+    act(() => latest.dispose());
+    expect(screen.getByText("first renderer: my-ui")).toBeInTheDocument();
+    act(() => chatExtensions.disposeAll("test"));
+    expect(screen.queryByText("first renderer: my-ui")).not.toBeInTheDocument();
+    expect(view.container.querySelector("code")).toHaveTextContent("source");
+  });
+
   it.each(["openui-lang", "custom-ui"])(
     "keeps streamed %s source inside its renderer across token boundaries",
     (language) => {

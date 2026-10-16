@@ -22,6 +22,7 @@ const context = {
   prepareQuery: (query: string) => query,
   requestContext: { approval_level: "default" },
   queueFullMessage: "Queue full",
+  staleMessage: "请回到原来的对话后再提交。",
 };
 
 beforeEach(() => {
@@ -62,7 +63,7 @@ describe("plugin queue admission", () => {
     ]) {
       expect(() =>
         enqueuePluginSubmission(input, { ...context, ...changed }),
-      ).toThrow("original conversation");
+      ).toThrow(context.staleMessage);
     }
     expect(useMessageQueueStore.getState().getQueue("chat-a")).toHaveLength(0);
   });
@@ -76,7 +77,7 @@ describe("plugin queue admission", () => {
           sessionId: "shared-runtime",
         }),
       }),
-    ).toThrow("original conversation");
+    ).toThrow(context.staleMessage);
     expect(useMessageQueueStore.getState().getQueue("chat-a")).toHaveLength(0);
   });
 
@@ -102,7 +103,7 @@ describe("plugin queue admission", () => {
           channel: "console",
         }),
       }),
-    ).toThrow("original conversation");
+    ).toThrow(context.staleMessage);
     expect(useMessageQueueStore.getState().getQueue("chat-a")).toHaveLength(0);
   });
 

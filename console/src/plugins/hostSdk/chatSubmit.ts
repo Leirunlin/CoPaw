@@ -1,4 +1,5 @@
 import type { ChatSubmitInput, Disposable } from "../types/qwenpaw";
+import i18n from "../../i18n";
 
 type SubmitHandler = (input: ChatSubmitInput) => void | Promise<void>;
 let activeHandler: SubmitHandler | undefined;
@@ -21,9 +22,6 @@ export async function submitChat(
     throw new Error("A plugin, message, Agent and session are required.");
   }
   const handler = activeHandler;
-  if (!handler)
-    throw new Error(
-      "Chat is not ready. Open the original conversation and retry.",
-    );
+  if (!handler) throw new Error(i18n.t("chat.pluginSubmission.notReady"));
   await handler({ ...input, query: input.query.trim() });
 }

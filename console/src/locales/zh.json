@@ -4007,6 +4007,10 @@
       "copyId": "复制对话 ID",
       "delete": "删除"
     },
+    "pluginSubmission": {
+      "staleConversation": "请回到原来的对话后再提交。",
+      "notReady": "对话尚未就绪，请打开原来的对话后重试。"
+    },
     "queue": {
       "title": "消息队列",
       "paused": "已暂停",

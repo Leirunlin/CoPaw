@@ -4148,6 +4148,10 @@
       "copyId": "Copy conversation ID",
       "delete": "Delete"
     },
+    "pluginSubmission": {
+      "staleConversation": "Open the original conversation before submitting this action.",
+      "notReady": "Chat is not ready. Open the original conversation and retry."
+    },
     "queue": {
       "title": "Message Queue",
       "paused": "Paused",

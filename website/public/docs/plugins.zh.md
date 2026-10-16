@@ -745,17 +745,15 @@ window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
 
 ### Assistant 代码块与消息提交
 
-`chat.codeBlock(pluginId, language, Component)` 为 Assistant 正文中指定语言的围栏代码块注册组件。用户消息、思考和工具结果沿用默认渲染。同一语言以最后注册的组件为准，释放后恢复前一个注册；`chat.disposeAll(pluginId)` 会清理该插件的注册。
+`chat.codeBlock(pluginId, language, Component)` 可以将回答中的代码块显示为交互组件。例如，注册 `openui-lang` 后，回答中标记为该语言的代码块就会交给你的组件渲染。
 
-组件接收 `source`、`language`、块级 `isStreaming`、当前挂载期间稳定的 `messageId` / `blockId`、来源 `agentId` / `sessionId` 和 `fallback()`。保持组件类型稳定，可让局部状态随流式更新保留。
+组件通过 `source` 获取截至当前收到的源码，通过 `isStreaming` 判断代码块是否仍在生成。宿主在流式更新时保留组件的局部状态；请使用固定的组件类型，并在组件中处理尚未生成完整的内容。组件还会收到 `language`、`messageId`、`blockId`、`agentId`、`sessionId` 和默认代码展示函数 `fallback()`。
 
-语言取围栏信息串中第一个空白分隔的字段，并转为小写，例如 `openui-lang title="Demo"` 匹配 `openui-lang`。宿主统一解析 Markdown，通过消息级 Portal 保持代码块组件挂载，追加文本或补全引用链接时保留 UI 的局部状态。`blockId` 在正文和各条脚注内分别按代码块顺序生成，脚注移动或调整显示顺序时仍保持身份，适用于追加式流。
+同一语言以最后注册的组件为准，调用返回值的 `dispose()` 可恢复前一个注册。`chat.disposeAll(pluginId)` 可清理该插件的全部聊天扩展。
 
-宿主持续传递累计源码和块级 `isStreaming`。文本内容未提供状态时，采用父消息状态；围栏闭合后，该块即结束流式状态，其余回答可以继续生成。插件负责 DSL 校验、未完成结构的展示及状态持久化。
+`await chat.submit(pluginId, { query, agentId, sessionId })` 可将用户在组件中的选择作为新消息提交。请传入组件收到的 `agentId` 和 `sessionId`。消息会加入原会话的发送队列，输入框中的草稿和附件会保留。Promise 在入队成功后完成；对话尚未就绪、用户已切换会话或 Agent、队列已满时会返回错误。
 
-`await chat.submit(pluginId, { query, agentId, sessionId })` 将普通用户消息加入当前打开的原会话队列，保留输入框草稿与附件，并复用现有请求、流式响应和历史记录。Promise resolve 表示成功入队；Chat 未就绪、会话或 Agent 已切换、队列已满时 reject。会话匹配以规范化 Chat 身份为准：同一 Chat 的 SDK 和后端别名可以通用，共享 runtime session ID 的不同 Chat 仍保持各自的身份。
-
-`host.openExternalLink(url)` 复用宿主在浏览器和桌面端打开链接的能力。插件可根据动作用途选择接受的 URL 协议。
+`host.openExternalLink(url)` 可在浏览器或桌面端打开外部链接。
 
 ### 工具调用渲染 — `chat.toolRender`
 
