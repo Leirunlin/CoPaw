@@ -662,15 +662,15 @@ qwenpaw chats delete <chat_id>
 
 ### qwenpaw skills
 
-| 用法                                   | 位置参数                             | 选项                                                                                                                                                             |
-| -------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `qwenpaw skills list`                  | 无                                   | `--agent-id ID`（默认 `default`）或 `--pool`；workspace 支持 `--status all\|enabled\|disabled`（默认 `all`），Pool 不支持状态筛选                                |
-| `qwenpaw skills config`                | 无                                   | `--agent-id ID`（默认 `default`）；仅支持 workspace                                                                                                              |
-| `qwenpaw skills enable SKILL_NAME...`  | 一个或多个精确的 workspace 技能名    | `--agent-id ID`（默认 `default`）                                                                                                                                |
-| `qwenpaw skills disable SKILL_NAME...` | 一个或多个精确的 workspace 技能名    | `--agent-id ID`（默认 `default`）                                                                                                                                |
-| `qwenpaw skills info SKILL_NAME`       | 一个精确的技能名                     | `--agent-id ID`（默认 `default`）或 `--pool`                                                                                                                     |
-| `qwenpaw skills install LOCATION`      | 支持来源的技能 URL，或本地技能目录   | `--pool`（URL 默认）、`--agent-id ID` 或 `--workspace PATH`（仅本地目录）；`--enable/--no-enable` 仅支持 workspace（默认启用）；`--json` |
-| `qwenpaw skills uninstall SKILL_NAME`  | 一个精确的技能名                     | `--pool` 从 Pool 删除；`--agent-id ID` 从该 workspace 删除；二者互斥；为兼容旧用法，两者都不传时仍操作 Pool                                                      |
+| 用法                                   | 位置参数                             | 选项                                                                                                                                                 |
+| -------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qwenpaw skills list`                  | 无                                   | `--agent-id ID`（默认 `default`）或 `--pool`；workspace 支持 `--status all\|enabled\|disabled`（默认 `all`），Pool 不支持状态筛选                    |
+| `qwenpaw skills config`                | 无                                   | `--agent-id ID`（默认 `default`）；仅支持 workspace                                                                                                  |
+| `qwenpaw skills enable SKILL_NAME...`  | 一个或多个精确的 workspace 技能名    | `--agent-id ID`（默认 `default`）                                                                                                                    |
+| `qwenpaw skills disable SKILL_NAME...` | 一个或多个精确的 workspace 技能名    | `--agent-id ID`（默认 `default`）                                                                                                                    |
+| `qwenpaw skills info SKILL_NAME`       | 一个精确的技能名                     | `--agent-id ID`（默认 `default`）或 `--pool`                                                                                                         |
+| `qwenpaw skills install LOCATION`      | 支持来源的技能 URL，或本地技能目录   | `--pool`（URL 默认）、`--agent-id ID` 或 `--workspace PATH`（仅本地目录）；`--enable/--no-enable` 仅支持 workspace（默认启用）；`--json`             |
+| `qwenpaw skills uninstall SKILL_NAME`  | 一个精确的技能名                     | `--pool` 从 Pool 删除；`--agent-id ID` 从该 workspace 删除；二者互斥；为兼容旧用法，两者都不传时仍操作 Pool                                          |
 | `qwenpaw skills test SKILL`            | 本地技能目录，或作用域内的精确技能名 | `--agent-id ID`（按名称查找时默认 `default`）、`--pool` 或 `--workspace PATH`；agent 命令检查可用 `--base-url URL` 指定服务；`--json` 返回结构化结果 |
 
 ```bash
