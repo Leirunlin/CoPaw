@@ -360,8 +360,6 @@ def _inspect_skill_directory(
         security_scan="skipped",
     )
     metadata, requirements = _read_skill_frontmatter(skill_dir)
-    skill_name = metadata["name"]
-    report["name"] = skill_name
     report["metadata"] = metadata
     agent_metadata = skill_dir / "agents" / "openai.yaml"
     if agent_metadata.is_file():
