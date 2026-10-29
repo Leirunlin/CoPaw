@@ -3,21 +3,19 @@
 
 from __future__ import annotations
 
-import contextlib
 import importlib
 import logging
-import multiprocessing as mp
-import os
 import shutil
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from queue import Empty
 from typing import Any, Optional
-from enum import Enum
 
-import traceback
 import httpx
-from pydantic import Field
+
+from . import hardware as system_info
+from .model_types import DownloadSource, LocalModelInfo
 
 from .download_manager import (
     DownloadProgressTracker,
@@ -28,50 +26,23 @@ from .download_manager import (
     ProcessDownloadController,
     ProcessDownloadTaskSpec,
 )
-from ..utils import system_info
-from ..utils.stdio import ensure_standard_streams
-from ..providers.provider import ModelInfo
-from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
+from .workers import ModelDownloads
 
 logger = logging.getLogger(__name__)
 
 
-class DownloadSource(str, Enum):
-    HUGGINGFACE = "huggingface"
-    MODELSCOPE = "modelscope"
-    # First try Hugging Face, then fall back to ModelScope if unreachable
-    AUTO = "auto"
-
-
-class LocalModelInfo(ModelInfo):
-    """Metadata for a local model"""
-
-    size_bytes: int = Field(
-        ...,
-        description="Model size in bytes, if known",
-    )
-    downloaded: bool = Field(
-        default=False,
-        description="Whether the model is fully downloaded and ready to use",
-    )
-    source: DownloadSource = Field(
-        default=DownloadSource.AUTO,
-        description="Preferred source to download the model from",
-    )
-
-
-class ModelManager:
+class ModelManager(ModelDownloads):
     """A manager for downloading local models with progress tracking."""
 
     def __init__(
         self,
+        *,
+        data_dir: Path,
     ) -> None:
-        self._context = mp.get_context("spawn")
-        self._model_dir = DEFAULT_LOCAL_PROVIDER_DIR / "models"
-        self._download_tmp_dir = DEFAULT_LOCAL_PROVIDER_DIR / "tmp"
+        self._model_dir = data_dir / "models"
+        self._download_tmp_dir = data_dir / "tmp"
         self._progress = DownloadProgressTracker()
         self._download_controller = ProcessDownloadController(
-            context=self._context,
             progress=self._progress,
         )
 
@@ -164,11 +135,10 @@ class ModelManager:
                 ],
             )
 
-        # check local download status for each recommended model
-        for model in models:
-            model.downloaded = self.is_downloaded(model.id)
-
-        return models
+        return [
+            replace(model, downloaded=self.is_downloaded(model.id))
+            for model in models
+        ]
 
     def _check_model_exists(self, model_id: str) -> bool:
         """Check if a model directory contains .gguf files."""
@@ -229,6 +199,7 @@ class ModelManager:
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
         resolved_source = source or self._resolve_download_source()
+        # TODO: Consider worker-side checks if SDK memory use is significant.
         total_bytes = self._estimate_download_size(
             repo_id=repo_id,
             source=resolved_source,
@@ -249,11 +220,6 @@ class ModelManager:
         }
         spec = ProcessDownloadTaskSpec(
             process_name=f"qwenpaw-model-download-{task_id}",
-            command=[
-                "qwenpaw-model-download",
-                repo_id,
-                resolved_source.value,
-            ],
             task=ProcessDownloadTask(
                 target=type(self)._download_worker,
                 payload=payload,
@@ -320,12 +286,6 @@ class ModelManager:
             downloaded_bytes,
         )
 
-    def _resolve_download_source(self) -> DownloadSource:
-        """Choose Hugging Face when reachable, otherwise use ModelScope."""
-        if self._probe_huggingface():
-            return DownloadSource.HUGGINGFACE
-        return DownloadSource.MODELSCOPE
-
     def _estimate_download_size(
         self,
         repo_id: str,
@@ -353,98 +313,6 @@ class ModelManager:
         return self._check_modelscope_gguf_exists(
             repo_id=repo_id,
         )
-
-    @staticmethod
-    def _download_worker(payload: dict[str, Any], queue: Any) -> None:
-        """Run the blocking SDK download in a child process."""
-        ensure_standard_streams()
-        repo_id = payload["repo_id"]
-        source = DownloadSource(payload["source"])
-        staging_dir = Path(payload["staging_dir"]).expanduser().resolve()
-
-        try:
-            ModelManager._cleanup_path(staging_dir)
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            local_path = ModelManager._download_to_directory(
-                repo_id=repo_id,
-                source=source,
-                local_dir=staging_dir,
-            )
-        except Exception:
-            queue.put(
-                DownloadTaskResult(
-                    status=DownloadTaskStatus.FAILED,
-                    error="Download failed: " + traceback.format_exc(),
-                ).to_message(),
-            )
-            logger.error(
-                "Error when downloading model [%s]:\n%s",
-                repo_id,
-                traceback.format_exc(),
-            )
-            raise
-        queue.put(
-            DownloadTaskResult(
-                status=DownloadTaskStatus.COMPLETED,
-                local_path=str(Path(local_path).resolve()),
-            ).to_message(),
-        )
-
-    @staticmethod
-    def _download_to_directory(
-        repo_id: str,
-        source: DownloadSource,
-        local_dir: Path,
-    ) -> str:
-        """Download a model into the target directory."""
-        if source == DownloadSource.HUGGINGFACE:
-            return ModelManager._download_from_huggingface(
-                repo_id=repo_id,
-                local_dir=local_dir,
-            )
-        return ModelManager._download_from_modelscope(
-            repo_id=repo_id,
-            local_dir=local_dir,
-        )
-
-    @staticmethod
-    def _download_from_huggingface(
-        repo_id: str,
-        local_dir: Path,
-    ) -> str:
-        """Download a model repository from Hugging Face Hub."""
-        try:
-            from huggingface_hub import snapshot_download
-        except ImportError as exc:
-            raise ImportError(
-                "huggingface_hub is required for Hugging Face downloads.",
-            ) from exc
-
-        return snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(local_dir),
-        )
-
-    @staticmethod
-    def _download_from_modelscope(
-        repo_id: str,
-        local_dir: Path,
-    ) -> str:
-        """Download a model repository from ModelScope."""
-        with open(
-            os.devnull,
-            "a",
-            encoding="utf-8",
-            buffering=1,
-            errors="replace",
-        ) as sink_stream:
-            with contextlib.redirect_stdout(
-                sink_stream,
-            ), contextlib.redirect_stderr(sink_stream):
-                return ModelManager._get_modelscope_snapshot_download()(
-                    model_id=repo_id,
-                    local_dir=str(local_dir),
-                )
 
     def _estimate_huggingface_size(
         self,
@@ -553,6 +421,12 @@ class ModelManager:
             ),
         )
 
+    def _resolve_download_source(self) -> DownloadSource:
+        """Choose Hugging Face when reachable, otherwise use ModelScope."""
+        if self._probe_huggingface():
+            return DownloadSource.HUGGINGFACE
+        return DownloadSource.MODELSCOPE
+
     def _detect_available_memory_gb(self) -> float:
         """Prefer VRAM when available, otherwise use system memory."""
         gpu_memory_gb = system_info.get_vram_size_gb()
@@ -571,23 +445,6 @@ class ModelManager:
         except httpx.HTTPError:
             return False
         return response.status_code < 500
-
-    @staticmethod
-    def _get_modelscope_snapshot_download() -> Any:
-        """Return a compatible ModelScope snapshot downloader."""
-        try:
-            snapshot_module = importlib.import_module(
-                "modelscope.hub.snapshot_download",
-            )
-            return snapshot_module.snapshot_download
-        except ImportError:
-            try:
-                modelscope_module = importlib.import_module("modelscope")
-                return modelscope_module.snapshot_download
-            except ImportError as exc:
-                raise ImportError(
-                    "ModelScope snapshot download is required.",
-                ) from exc
 
     @staticmethod
     def _drain_queue_message(queue: Any) -> Optional[dict[str, Any]]:
@@ -630,16 +487,6 @@ class ModelManager:
         if local_path == staging_dir:
             return final_dir
         return final_dir / local_path.relative_to(staging_dir)
-
-    @staticmethod
-    def _cleanup_path(path: Path) -> None:
-        """Delete a file or directory if it exists."""
-        if not path.exists():
-            return
-        if path.is_dir():
-            shutil.rmtree(path, ignore_errors=True)
-            return
-        path.unlink(missing_ok=True)
 
     def _iter_downloaded_model_dirs(self) -> list[Path]:
         candidates: list[Path] = []
