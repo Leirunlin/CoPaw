@@ -20,14 +20,18 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from qwenpaw.local_models.download_manager import (
+from llamacpp import hardware as system_info
+
+from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
-from qwenpaw.local_models.model_manager import (
+from llamacpp.model_manager import (
     DownloadSource,
     ModelManager,
 )
+
+from llamacpp.workers import ModelDownloads
 
 
 @pytest.fixture
@@ -321,15 +325,11 @@ class TestProbeAndResolveSource:
 
 class TestRecommendedModels:
     def test_prefers_vram(self, manager, monkeypatch):
-        from qwenpaw.utils import system_info
-
         monkeypatch.setattr(system_info, "get_vram_size_gb", lambda: 12.0)
         monkeypatch.setattr(system_info, "get_memory_size_gb", lambda: 4.0)
         assert manager._detect_available_memory_gb() == 12.0
 
     def test_falls_back_to_system_memory(self, manager, monkeypatch):
-        from qwenpaw.utils import system_info
-
         monkeypatch.setattr(system_info, "get_vram_size_gb", lambda: 0.0)
         monkeypatch.setattr(system_info, "get_memory_size_gb", lambda: 6.0)
         assert manager._detect_available_memory_gb() == 6.0
@@ -406,7 +406,7 @@ class TestGetModelscopeSnapshotDownload:
             "modelscope.hub.snapshot_download",
             fake,
         )
-        assert ModelManager._get_modelscope_snapshot_download() is sentinel
+        assert ModelDownloads._get_modelscope_snapshot_download() is sentinel
 
     def test_falls_back_to_top_level_module(self, monkeypatch):
         monkeypatch.setitem(
@@ -418,7 +418,7 @@ class TestGetModelscopeSnapshotDownload:
         fake = types.ModuleType("modelscope")
         fake.snapshot_download = sentinel
         monkeypatch.setitem(sys.modules, "modelscope", fake)
-        assert ModelManager._get_modelscope_snapshot_download() is sentinel
+        assert ModelDownloads._get_modelscope_snapshot_download() is sentinel
 
     def test_raises_when_modelscope_missing(self, monkeypatch):
         monkeypatch.setitem(
@@ -428,7 +428,7 @@ class TestGetModelscopeSnapshotDownload:
         )
         monkeypatch.setitem(sys.modules, "modelscope", None)
         with pytest.raises(ImportError):
-            ModelManager._get_modelscope_snapshot_download()
+            ModelDownloads._get_modelscope_snapshot_download()
 
 
 # ---------------------------------------------------------------------------
@@ -472,12 +472,12 @@ class TestDownloadWorker:
             return str(target)
 
         monkeypatch.setattr(
-            ModelManager,
+            ModelDownloads,
             "_download_to_directory",
             staticmethod(fake_download),
         )
         q: queue.Queue = queue.Queue()
-        ModelManager._download_worker(
+        ModelDownloads._download_worker(
             {
                 "repo_id": "org/repo",
                 "source": DownloadSource.MODELSCOPE.value,
@@ -500,13 +500,13 @@ class TestDownloadWorker:
             raise RuntimeError("download exploded")
 
         monkeypatch.setattr(
-            ModelManager,
+            ModelDownloads,
             "_download_to_directory",
             staticmethod(fake_download),
         )
         q: queue.Queue = queue.Queue()
         with pytest.raises(RuntimeError):
-            ModelManager._download_worker(
+            ModelDownloads._download_worker(
                 {
                     "repo_id": "org/repo",
                     "source": DownloadSource.MODELSCOPE.value,
@@ -519,17 +519,17 @@ class TestDownloadWorker:
 
     def test_download_to_directory_dispatch(self, monkeypatch):
         monkeypatch.setattr(
-            ModelManager,
+            ModelDownloads,
             "_download_from_huggingface",
             staticmethod(lambda repo_id, local_dir: "hf-path"),
         )
         monkeypatch.setattr(
-            ModelManager,
+            ModelDownloads,
             "_download_from_modelscope",
             staticmethod(lambda repo_id, local_dir: "ms-path"),
         )
         assert (
-            ModelManager._download_to_directory(
+            ModelDownloads._download_to_directory(
                 "r",
                 DownloadSource.HUGGINGFACE,
                 Path("."),
@@ -537,7 +537,7 @@ class TestDownloadWorker:
             == "hf-path"
         )
         assert (
-            ModelManager._download_to_directory(
+            ModelDownloads._download_to_directory(
                 "r",
                 DownloadSource.MODELSCOPE,
                 Path("."),
@@ -563,7 +563,7 @@ class TestDownloadWorker:
             "snapshot_download",
             fake_snapshot,
         )
-        result = ModelManager._download_from_huggingface(
+        result = ModelDownloads._download_from_huggingface(
             "org/repo",
             tmp_path,
         )
@@ -641,7 +641,7 @@ class TestStagingAndCleanup:
         assert not (final / "old.gguf").exists()
 
     def test_cleanup_path_handles_missing(self, tmp_path):
-        ModelManager._cleanup_path(tmp_path / "ghost")
+        ModelDownloads._cleanup_path(tmp_path / "ghost")
 
     def test_cleanup_path_removes_file_and_dir(self, tmp_path):
         file_path = tmp_path / "f.txt"
@@ -650,8 +650,8 @@ class TestStagingAndCleanup:
         dir_path.mkdir()
         (dir_path / "inner").write_text("y")
 
-        ModelManager._cleanup_path(file_path)
-        ModelManager._cleanup_path(dir_path)
+        ModelDownloads._cleanup_path(file_path)
+        ModelDownloads._cleanup_path(dir_path)
 
         assert not file_path.exists()
         assert not dir_path.exists()
