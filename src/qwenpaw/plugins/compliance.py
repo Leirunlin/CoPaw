@@ -200,6 +200,7 @@ class APIExport:
     stability: str = "stable"
 
 
+# TODO: Finalize these version tags with SDK_VERSION before SDK publication.
 API_EXPORTS = tuple(
     APIExport(
         module,
@@ -208,6 +209,7 @@ API_EXPORTS = tuple(
             "1.1.0"
             if module
             in {"qwenpaw.plugins.transcription", "qwenpaw.plugins.harnesses"}
+            or symbol == "ProviderHandle"
             else "1.0.0"
         ),
         stability="compatibility" if module == "qwenpaw.pawapp" else "stable",
