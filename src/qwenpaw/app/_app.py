@@ -542,16 +542,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 plugin_dirs,
                 channel_runtime=channel_runtime,
             )
-            from ..plugins.local_model_legacy import migrate_local_model_plugin
-
-            seed_errors = await migrate_local_model_plugin(plugin_loader)
-            for plugin_id, reason in seed_errors.items():
-                logger.warning(
-                    "Bundled plugin %s needs repair: %s",
-                    plugin_id,
-                    reason,
-                )
-
             from ..cli.app_cmd import _dependency_restart
 
             if _dependency_restart is not None:
@@ -593,6 +583,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_loader.registry.set_plugin_http_app(app)
             app.state.plugin_registry = plugin_loader.registry
 
+            from ..plugins.local_model_legacy import (
+                load_upgraded_local_model,
+                prepare_startup_local_model,
+            )
+
+            deferred_providers = await prepare_startup_local_model(
+                plugin_loader,
+                provider_manager,
+            )
             config = load_config(get_config_path())
             plugin_configs = (
                 config.plugins if hasattr(config, "plugins") else {}
@@ -623,6 +622,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 configs=plugin_configs,
                 types=["provider"],
                 activate=True,
+                exclude=deferred_providers,
             )
             logger.debug(
                 "Phase 1: workspace plugins registered and providers activated",
@@ -666,6 +666,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
                 activate=False,
+                exclude=deferred_providers,
             )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
@@ -755,6 +756,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             if app.state.startup_ready.is_set():
                 startup_display.complete(startup_elapsed)
+
+            if deferred_providers:
+                await load_upgraded_local_model(plugin_loader)
 
         except Exception:
             logger.error(
