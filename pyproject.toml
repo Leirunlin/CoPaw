@@ -142,6 +142,7 @@ dev = [
 ]
 local = [
     "modelscope>=1.35.0",
+    "modelscope-hub>=0.7.1",
     "huggingface_hub>=0.20.0",
 ]
 hub = [
@@ -209,7 +210,7 @@ channels = [
 ]
 full = [
     "qwenpaw[channels]",
-    "qwenpaw[qwenpaw-data,hub,local]",
+    "qwenpaw[qwenpaw-data,hub]",
 ]
 sip = [
     "pyVoIP>=1.6.0",
