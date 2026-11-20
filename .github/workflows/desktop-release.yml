@@ -266,6 +266,44 @@ jobs:
             --output $output `
             --pubkey-config console/src-tauri/tauri.version.conf.json
 
+      - name: Measure Windows package
+        shell: bash
+        run: |
+          python - <<'PYTHON'
+          import json
+          from pathlib import Path
+
+          installer, = Path("dist").glob("QwenPaw-Tauri-*-Windows-setup.exe")
+          binaries = Path("console/src-tauri/binaries")
+          resources = {}
+          for name in ("qwenpaw-backend", "python-runtime", "channel-runtime", "node-runtime"):
+              root = binaries / name
+              if not root.is_dir():
+                  raise FileNotFoundError(root)
+              resources[name] = {
+                  path.relative_to(root).as_posix(): path.stat().st_size
+                  for path in sorted(root.rglob("*"))
+                  if path.is_file()
+              }
+          report = {
+              "installer_bytes": installer.stat().st_size,
+              "resource_bytes": {
+                  key: sum(files.values()) for key, files in resources.items()
+              },
+          }
+          print(json.dumps(report, indent=2))
+          report["files"] = resources
+          Path("dist/windows-package-sizes.json").write_text(
+              json.dumps(report, indent=2), encoding="utf-8"
+          )
+          PYTHON
+
+      - name: Upload Windows package sizes
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package-sizes
+          path: dist/windows-package-sizes.json
+
       - name: Verify desktop (Tauri Windows)
         timeout-minutes: 10
         uses: ./.github/actions/verify-tauri-windows
